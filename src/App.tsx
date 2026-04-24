@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import gsap from 'gsap';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Award, BarChart3, Clock, Milestone, Compass, Palmtree } from 'lucide-react';
+import { Trophy, Award, BarChart3, Clock, Milestone, Compass, Palmtree, Info } from 'lucide-react';
 import { saveScore, getLeaderboard, ScoreEntry } from './firebase';
 import { 
   Dice5, ShoppingCart, Palette, User, 
@@ -742,6 +742,10 @@ export default function BlockyBoard() {
   const [isSceneReady, setIsSceneReady] = useState(false);
   const diceRef = useRef<THREE.Mesh | null>(null);
   const particlesRef = useRef<THREE.Points | null>(null);
+  const rainRef = useRef<THREE.Points | null>(null);
+  const mistRef = useRef<THREE.Points | null>(null);
+  const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
+  const thunderAudioRef = useRef<HTMLAudioElement | null>(null);
   const pulsatingObjectsRef = useRef<THREE.Mesh[]>([]);
   const animatingLinesRef = useRef<THREE.Line[]>([]);
   const animatingFlagsRef = useRef<THREE.Group[]>([]);
@@ -784,6 +788,8 @@ export default function BlockyBoard() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [selectedDiceSkin, setSelectedDiceSkin] = useState<DiceSkinType>('DEFAULT');
   const [unlockedDiceSkins, setUnlockedDiceSkins] = useState<DiceSkinType[]>(['DEFAULT']);
   const [toast, setToast] = useState<{ text: string; color: string } | null>(null);
@@ -800,6 +806,10 @@ export default function BlockyBoard() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<ScoreEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+  // Weather and Navigation States
+  const [weather, setWeather] = useState<'SUNNY' | 'RAIN' | 'MIST'>('SUNNY');
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   const fetchLeaderboard = useCallback(async (level: LevelID) => {
     setLoadingLeaderboard(true);
@@ -823,6 +833,83 @@ export default function BlockyBoard() {
       return () => clearTimeout(timer);
     }
   }, [messages]);
+
+  // Navigation Guard for Jungle Theme
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // theme FOREST is the classic Jungle theme (Whispering Woods)
+      if (gameState !== 'SETUP' && gameState !== 'WON' && theme === ThemeType.FOREST) {
+        e.preventDefault();
+        e.returnValue = ''; 
+      }
+    };
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (gameState !== 'SETUP' && gameState !== 'WON' && theme === ThemeType.FOREST) {
+        // Prevent back navigation by pushing current state back
+        window.history.pushState(null, '', window.location.pathname);
+        setShowExitConfirm(true);
+      }
+    };
+
+    if (gameState !== 'SETUP' && gameState !== 'WON' && theme === ThemeType.FOREST) {
+      window.history.pushState(null, '', window.location.pathname);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('popstate', handlePopState);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [gameState, theme]);
+
+  // Weather Cycle Logic
+  useEffect(() => {
+    const weatherCycle = setInterval(() => {
+      const weathers: ('SUNNY' | 'RAIN' | 'MIST')[] = ['SUNNY', 'RAIN', 'MIST'];
+      setWeather(prev => {
+        const next = weathers[Math.floor(Math.random() * weathers.length)];
+        return next;
+      });
+    }, 25000); 
+    return () => clearInterval(weatherCycle);
+  }, []);
+
+  // Ambient Sounds Logic
+  useEffect(() => {
+    if (gameState === 'SETUP' || gameState === 'WON') {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause();
+        ambientAudioRef.current = null;
+      }
+      return;
+    }
+
+    if (theme === ThemeType.FOREST) {
+      if (!ambientAudioRef.current) {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2436/2436-preview.mp3');
+        audio.loop = true;
+        audio.volume = 0.2;
+        audio.play().catch(() => {});
+        ambientAudioRef.current = audio;
+      }
+    } else {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause();
+        ambientAudioRef.current = null;
+      }
+    }
+  }, [gameState, theme]);
+
+  useEffect(() => {
+    if (weather === 'RAIN' && theme === ThemeType.FOREST) {
+      const thunder = new Audio('https://assets.mixkit.co/active_storage/sfx/2418/2418-preview.mp3');
+      thunder.volume = 0.4;
+      thunder.play().catch(() => {});
+      thunderAudioRef.current = thunder;
+    }
+  }, [weather, theme]);
 
   const currentP = players[currentPlayerIndex] || { 
     id: -1, 
@@ -982,6 +1069,37 @@ export default function BlockyBoard() {
     setCurrentPlayerIndex(0);
     setGameState('IDLE');
   };
+
+  // Weather Effects Switcher
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    const rain = rainRef.current;
+    const mist = mistRef.current;
+    const dirLight = sceneRef.current.children.find(c => c instanceof THREE.DirectionalLight) as THREE.DirectionalLight;
+
+    if (weather === 'RAIN') {
+      if (rain) {
+        rain.visible = true;
+        gsap.to((rain.material as THREE.PointsMaterial), { opacity: 0.6, duration: 2 });
+      }
+      if (mist) gsap.to((mist.material as THREE.PointsMaterial), { opacity: 0, duration: 2, onComplete: () => { if (mistRef.current) mistRef.current.visible = false; } });
+      gsap.to(sceneRef.current.fog, { density: 0.03, duration: 3 });
+      if (dirLight) gsap.to(dirLight, { intensity: 0.6, duration: 3 });
+    } else if (weather === 'MIST') {
+      if (mist) {
+        mist.visible = true;
+        gsap.to((mist.material as THREE.PointsMaterial), { opacity: 0.3, duration: 2 });
+      }
+      if (rain) gsap.to((rain.material as THREE.PointsMaterial), { opacity: 0, duration: 2, onComplete: () => { if (rainRef.current) rainRef.current.visible = false; } });
+      gsap.to(sceneRef.current.fog, { density: 0.06, duration: 3 });
+      if (dirLight) gsap.to(dirLight, { intensity: 0.8, duration: 3 });
+    } else { // SUNNY
+      if (rain) gsap.to((rain.material as THREE.PointsMaterial), { opacity: 0, duration: 2, onComplete: () => { if (rainRef.current) rainRef.current.visible = false; } });
+      if (mist) gsap.to((mist.material as THREE.PointsMaterial), { opacity: 0, duration: 2, onComplete: () => { if (mistRef.current) mistRef.current.visible = false; } });
+      gsap.to(sceneRef.current.fog, { density: 0.015, duration: 3 });
+      if (dirLight) gsap.to(dirLight, { intensity: 1.4, duration: 3 });
+    }
+  }, [weather]);
 
   const resetToSetup = () => {
     setGameState('SETUP');
@@ -1724,6 +1842,71 @@ export default function BlockyBoard() {
     scene.add(points);
     particlesRef.current = points;
 
+    // Helper for soft particle texture
+    const createSoftTexture = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.4, 'rgba(255,255,255,0.4)');
+      gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+      const texture = new THREE.CanvasTexture(canvas);
+      return texture;
+    };
+    const softTexture = createSoftTexture();
+
+    // Rain Particles
+    const rainCount = 1500;
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPos = new Float32Array(rainCount * 3);
+    for(let i=0; i<rainCount*3; i++) {
+      rainPos[i*3] = (Math.random() - 0.5) * 60;
+      rainPos[i*3+1] = Math.random() * 40;
+      rainPos[i*3+2] = (Math.random() - 0.5) * 60;
+    }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+    const rainMat = new THREE.PointsMaterial({ 
+      color: 0x88ccff, 
+      size: 0.2, 
+      map: softTexture, 
+      transparent: true, 
+      opacity: 0, 
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const rain = new THREE.Points(rainGeo, rainMat);
+    rain.visible = false;
+    scene.add(rain);
+    rainRef.current = rain;
+
+    // Mist Particles
+    const mistCount = 600;
+    const mistGeo = new THREE.BufferGeometry();
+    const mistPos = new Float32Array(mistCount * 3);
+    for(let i=0; i<mistCount*3; i++) {
+      mistPos[i*3] = (Math.random() - 0.5) * 80;
+      mistPos[i*3+1] = Math.random() * 8;
+      mistPos[i*3+2] = (Math.random() - 0.5) * 80;
+    }
+    mistGeo.setAttribute('position', new THREE.BufferAttribute(mistPos, 3));
+    const mistMat = new THREE.PointsMaterial({ 
+      color: 0xeeeeee, 
+      size: 6, 
+      map: softTexture,
+      transparent: true, 
+      opacity: 0, 
+      blending: THREE.NormalBlending,
+      depthWrite: false
+    });
+    const mist = new THREE.Points(mistGeo, mistMat);
+    mist.visible = false;
+    scene.add(mist);
+    mistRef.current = mist;
+
     const animate = () => {
       requestAnimationFrame(animate);
       const now = Date.now();
@@ -1807,6 +1990,25 @@ export default function BlockyBoard() {
               animal.rotation.z = Math.sin(now * 0.002) * 0.1;
           }
         });
+      }
+
+      // Weather Particle Animation
+      if (rainRef.current && rainRef.current.visible) {
+        const rPosArr = rainRef.current.geometry.attributes.position.array as Float32Array;
+        for(let i=0; i<1500; i++) {
+          rPosArr[i*3+1] -= 1.0; 
+          if (rPosArr[i*3+1] < -2) rPosArr[i*3+1] = 40;
+        }
+        rainRef.current.geometry.attributes.position.needsUpdate = true;
+      }
+
+      if (mistRef.current && mistRef.current.visible) {
+        const mPosArr = mistRef.current.geometry.attributes.position.array as Float32Array;
+        for(let i=0; i<600; i++) {
+          mPosArr[i*3] += Math.sin(now * 0.001 + i) * 0.01; 
+          mPosArr[i*3+2] += Math.cos(now * 0.001 + i) * 0.01;
+        }
+        mistRef.current.geometry.attributes.position.needsUpdate = true;
       }
 
       if (controlsRef.current) controlsRef.current.update();
@@ -3002,17 +3204,32 @@ export default function BlockyBoard() {
           <div id="setup-modal" className="w-full max-w-lg bg-[#111827] border border-[#5D9948]/30 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative z-10 scale-in my-auto">
             <div className="text-center">
               <div className="flex justify-between items-center mb-2">
-                <div className="w-10 h-10" /> {/* Spacer */}
-                <h2 className="text-3xl font-black italic uppercase text-[#5D9948] tracking-tighter">Initialize Match</h2>
                 <button 
-                  onClick={() => setIsLeaderboardOpen(true)}
+                  onClick={() => setIsAboutOpen(true)}
                   className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-[#5D9948] hover:bg-[#5D9948] hover:text-black transition-all shadow-xl"
-                  title="Hall of Fame"
+                  title="About Game"
                 >
-                  <Trophy size={20} />
+                  <Compass size={20} />
                 </button>
+                <h2 className="text-3xl font-black italic uppercase text-[#5D9948] tracking-tighter">RetroX Odyssey</h2>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setIsTutorialOpen(true)}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-[#5D9948] hover:bg-[#5D9948] hover:text-black transition-all shadow-xl"
+                    title="Tutorial"
+                  >
+                    <Settings size={20} />
+                  </button>
+                  <button 
+                    onClick={() => setIsLeaderboardOpen(true)}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-[#5D9948] hover:bg-[#5D9948] hover:text-black transition-all shadow-xl"
+                    title="Hall of Fame"
+                  >
+                    <Trophy size={20} />
+                  </button>
+                </div>
               </div>
-              <p className="text-[10px] text-white/50 uppercase tracking-[0.3em]">Connecting neural links for participants</p>
+              <p className="text-[10px] text-white/50 uppercase tracking-[0.3em]">Dice ignite sparks, beasts strike back, and every roll rewrites destiny.</p>
             </div>
 
             <div className="space-y-6">
@@ -3182,14 +3399,17 @@ export default function BlockyBoard() {
             <Compass className="text-black" size={24} />
           </div>
           <h1 className={`text-xl sm:text-4xl font-black tracking-tighter italic uppercase font-display whitespace-nowrap`} style={{ textShadow: `0 0 15px ${uiColors.primary}80`, color: uiColors.primary }}>
-            Blocky Board
+            VoltRun: Path of Chaos
           </h1>
         </div>
-        <div className="flex items-center gap-4 sm:gap-8">
-          <div className="text-right hidden md:block">
-            <p className="text-[10px] uppercase tracking-widest opacity-50">Match ID</p>
-            <p className="font-display text-base sm:text-xl" style={{ color: uiColors.secondary }}>QX-9902</p>
-          </div>
+        <div className="flex items-center gap-4 sm:gap-4">
+          <button 
+            onClick={() => setIsTutorialOpen(true)}
+            className="p-2 sm:px-6 sm:py-2 border border-white/20 hover:border-white rounded-full text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+          >
+            <Compass className="w-5 h-5 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">Help</span>
+          </button>
           <button className="p-2 sm:px-6 sm:py-2 border border-white/20 hover:border-white rounded-full text-sm font-bold uppercase tracking-widest transition-all">
             <Settings className="w-5 h-5 sm:hidden" />
             <span className="hidden sm:inline">Settings</span>
@@ -3559,6 +3779,165 @@ export default function BlockyBoard() {
                      {lvl.split(' ')[0]}
                    </button>
                  ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isAboutOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-3xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="w-full max-w-2xl bg-gray-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-emerald-500/10 to-transparent">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-500/20 rounded-2xl flex items-center justify-center border border-emerald-500/30">
+                    <Info className="text-emerald-400" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black italic uppercase text-white tracking-widest">VoltRun</h3>
+                    <p className="text-emerald-400/60 font-black uppercase text-[10px] tracking-[0.3em]">Path of Chaos</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsAboutOpen(false)} className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all group">
+                  <X className="text-white/40 group-hover:text-white transition-colors" size={24} />
+                </button>
+              </div>
+              
+              <div className="p-8 overflow-y-auto custom-scrollbar space-y-6">
+                <p className="text-white/80 leading-relaxed font-medium">
+                  Roll the dice, spark the chaos, and dive into a cinematic 3D adventure board game built for the next generation. Inspired by Linear Track path games but reimagined with aesthetics and dynamic paths, every match is a thrilling journey where strategy meets spectacle.
+                </p>
+                <p className="text-white/80 leading-relaxed font-medium">
+                  Choose your style — <span className="text-emerald-400">Whispering Woods</span>, <span className="text-amber-400">Voxel valley</span>, <span className="text-cyan-400">Abbyssal void</span> and <span className="text-emerald-400">Miner Maze</span>— and race across winding boards filled with treasures, vehicles, and ferocious beasts. Ride jets or trains to leap ahead, face dinosaurs and rhinos that drag you back, and unleash weapons like the Army Tank to blast rivals with shockwaves.
+                </p>
+                <p className="text-white/80 leading-relaxed font-medium">
+                  With smooth multiplayer sync, free‑roam spectator mode, cinematic camera angles, and replay highlights, <span className="italic font-bold">VoltRun</span> transforms every roll into a show. Earn coins, unlock skins, and level up your dice in a vibrant store economy. Whether you’re chasing victory or just enjoying the chaos, this is board gaming evolved for Gen‑Z and Gen‑X players alike.
+                </p>
+              </div>
+
+              <div className="p-8 bg-black/40 border-t border-white/5">
+                <button 
+                  onClick={() => setIsAboutOpen(false)}
+                  className="w-full py-4 bg-white text-black font-black uppercase italic rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-xl"
+                >
+                  Understood, Let's Roll!
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isTutorialOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-3xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="w-full max-w-2xl bg-gray-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-cyan-500/10 to-transparent">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-cyan-500/20 rounded-2xl flex items-center justify-center border border-cyan-500/30">
+                    <Compass className="text-cyan-400" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black italic uppercase text-white tracking-widest">Tutorial</h3>
+                    <p className="text-cyan-400/60 font-black uppercase text-[10px] tracking-[0.3em]">Master the Chaos</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsTutorialOpen(false)} className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all group">
+                  <X className="text-white/40 group-hover:text-white transition-colors" size={24} />
+                </button>
+              </div>
+              
+              <div className="p-8 overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[
+                  { title: "Goal", icon: "🏆", desc: "Reach the last tile of the board first to win the match." },
+                  { title: "Movement", icon: "🎲", desc: "Roll the dice to move. Boosts can add +2 steps, while status effects might slow you down." },
+                  { title: "Store", icon: "🛒", desc: "Spend coins on items. Use them strategically during your turn." },
+                  { title: "Hazards", icon: "🦖", desc: "Beasts like Rhinos and Dinos will drag you back if you land on their territory." },
+                  { title: "Transports", icon: "🚀", desc: "Land on Flight or Train tiles to skip large sections of the board." },
+                  { title: "Tactics", icon: "🛡️", desc: "Use Stasis Cages to freeze rivals or Armor to minimize the impact of traps." }
+                ].map((step, idx) => (
+                  <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-2xl hover:bg-white/10 transition-colors">
+                    <div className="text-3xl mb-3">{step.icon}</div>
+                    <h4 className="text-white font-black uppercase tracking-widest mb-1">{step.title}</h4>
+                    <p className="text-white/50 text-xs leading-relaxed">{step.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-8 bg-black/40 border-t border-white/5">
+                <button 
+                  onClick={() => setIsTutorialOpen(false)}
+                  className="w-full py-4 bg-cyan-500 text-black font-black uppercase italic rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-xl"
+                >
+                  Got It!
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showExitConfirm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/80 backdrop-blur-3xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="w-full max-w-sm bg-gray-900 border-2 border-emerald-500/50 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(16,185,129,0.3)] flex flex-col"
+            >
+              <div className="p-8 text-center">
+                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
+                  <Palmtree className="text-emerald-400" size={40} />
+                </div>
+                <h3 className="text-2xl font-black italic uppercase text-white mb-2 tracking-widest">Jungle Warning</h3>
+                <p className="text-white/60 font-bold uppercase text-[10px] tracking-widest mb-8">Do you want to quit the current game?</p>
+                
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={() => {
+                        setShowExitConfirm(false);
+                        resetToSetup();
+                    }}
+                    className="w-full py-4 bg-emerald-500 text-black font-black uppercase italic rounded-xl hover:scale-105 active:scale-95 transition-all"
+                  >
+                    Yes, Exit Safari
+                  </button>
+                  <button 
+                    onClick={() => setShowExitConfirm(false)}
+                    className="w-full py-4 bg-white/5 border border-white/10 text-white font-black uppercase italic rounded-xl hover:bg-white/10 transition-all"
+                  >
+                    No, Stay Here
+                  </button>
+                  <button 
+                    onClick={() => setShowExitConfirm(false)}
+                    className="w-full py-2 text-white/30 hover:text-white/50 font-black uppercase text-[10px] tracking-widest transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
