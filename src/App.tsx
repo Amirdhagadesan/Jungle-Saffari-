@@ -19,16 +19,16 @@ import {
 // --- TYPES & CONSTANTS ---
 
 enum ThemeType {
-  NEON = 'Neon',
+  BLOCKY = 'Minecraft',
   FOREST = 'Forest',
   VOID = 'Void'
 }
 
 enum LevelID {
   WHISPERING_WOODS = 'Whispering Woods',
-  NEON_VELOCITY = 'Neon Velocity',
+  VOXEL_VALLEY = 'Voxel Valley',
   ABYSSAL_VOID = 'Abyssal Void',
-  CYBER_LABYRINTH = 'Cyber Labyrinth'
+  MINER_MAZE = 'Miner Maze'
 }
 
 interface LevelConfig {
@@ -56,12 +56,12 @@ const LEVELS: Record<LevelID, LevelConfig> = {
     difficultyLabel: 'Beginner',
     itemDensity: { treasure: [3, 4], predator: [1, 2], buff: [2, 3], debuff: [1, 1] }
   },
-  [LevelID.NEON_VELOCITY]: {
-    id: LevelID.NEON_VELOCITY,
-    theme: ThemeType.NEON,
+  [LevelID.VOXEL_VALLEY]: {
+    id: LevelID.VOXEL_VALLEY,
+    theme: ThemeType.BLOCKY,
     boardSize: 80,
-    description: 'High energy, high speed. Neon traps everywhere.',
-    specialRules: 'Flashy visuals. Moderate traps.',
+    description: 'A pixelated world of cubes and ores. Watch your step!',
+    specialRules: 'Voxel visuals. High density of obstacles.',
     difficultyLabel: 'Intermediate',
     itemDensity: { treasure: [2, 3], predator: [2, 3], buff: [1, 2], debuff: [2, 3] }
   },
@@ -74,12 +74,12 @@ const LEVELS: Record<LevelID, LevelConfig> = {
     difficultyLabel: 'Expert',
     itemDensity: { treasure: [1, 2], predator: [3, 4], buff: [1, 2], debuff: [3, 4] }
   },
-  [LevelID.CYBER_LABYRINTH]: {
-    id: LevelID.CYBER_LABYRINTH,
-    theme: ThemeType.NEON,
+  [LevelID.MINER_MAZE]: {
+    id: LevelID.MINER_MAZE,
+    theme: ThemeType.BLOCKY,
     boardSize: 120,
-    description: 'The ultimate digital maze. Only for legends.',
-    specialRules: 'Longest path. Absolute chaos.',
+    description: 'The deepest mines ever explored. Pixelated peril!',
+    specialRules: 'Longest path. Voxel architecture.',
     difficultyLabel: 'Legendary',
     itemDensity: { treasure: [1, 2], predator: [4, 5], buff: [0, 1], debuff: [4, 6] }
   }
@@ -101,7 +101,7 @@ interface DiceSkin {
 const DICE_SKINS: Record<DiceSkinType, DiceSkin> = {
   DEFAULT: { type: 'DEFAULT', name: 'Alloy', color: 0xffffff, emissive: 0x000000, price: 0, icon: '🎲' },
   GOLD: { type: 'GOLD', name: 'Gold', color: 0xFFD700, emissive: 0xAA8800, price: 100, icon: '👑' },
-  NEON: { type: 'NEON', name: 'Cyber', color: 0x39FF14, emissive: 0x39FF14, price: 150, icon: '🔋' },
+  NEON: { type: 'NEON', name: 'Voxel', color: 0x5D9948, emissive: 0x5D9948, price: 150, icon: '🟩' },
   RUBY: { type: 'RUBY', name: 'Ruby', color: 0xFF0000, emissive: 0x880000, price: 120, icon: '💎' },
   GALAXY: { type: 'GALAXY', name: 'Galaxy', color: 0x00F5FF, emissive: 0xBF5FFF, price: 200, icon: '🌌' },
 };
@@ -432,7 +432,38 @@ const getTileCoordsGlobal = (tileNumber: number) => {
   return PATH_COORDS[index];
 };
 
-const createStoneTile = (scale: number, color: number) => {
+const MC_COLORS = {
+  GRASS: 0x5D9948,
+  DIRT: 0x866043,
+  STONE: 0x7D7D7D,
+  OAK_LOG: 0x675231,
+  OAK_LEAVES: 0x48B02C,
+  IRON: 0xD8D8D8,
+  GOLD: 0xFDF55F,
+  DIAMOND: 0x64F2F2,
+  BEDROCK: 0x333333
+};
+
+const createStoneTile = (scale: number, color: number, theme: ThemeType = ThemeType.FOREST) => {
+  const isBlocky = theme === ThemeType.BLOCKY;
+  if (isBlocky) {
+    const group = new THREE.Group();
+    // Dirt base
+    const dirt = new THREE.Mesh(
+      new THREE.BoxGeometry(scale, 0.4, scale),
+      new THREE.MeshPhongMaterial({ color: MC_COLORS.DIRT, flatShading: true })
+    );
+    dirt.position.y = -0.2;
+    // Grass top
+    const grass = new THREE.Mesh(
+      new THREE.BoxGeometry(scale, 0.1, scale),
+      new THREE.MeshPhongMaterial({ color: MC_COLORS.GRASS, flatShading: true })
+    );
+    grass.position.y = 0.05;
+    group.add(dirt, grass);
+    group.receiveShadow = true;
+    return group;
+  }
   const geo = new THREE.IcosahedronGeometry(0.8 * scale, 1);
   const posAttr = geo.attributes.position;
   for (let i = 0; i < posAttr.count; i++) {
@@ -462,7 +493,33 @@ const createStoneTile = (scale: number, color: number) => {
   return mesh;
 };
 
-const createAnimal = (type: 'HANGING_BAT', scale: number = 0.5) => {
+const createAnimal = (type: 'HANGING_BAT', scale: number = 0.5, theme: ThemeType = ThemeType.FOREST) => {
+  const isBlocky = theme === ThemeType.BLOCKY;
+  if (isBlocky && type === 'HANGING_BAT') {
+    const group = new THREE.Group();
+    const mat = new THREE.MeshPhongMaterial({ color: 0x333333, flatShading: true });
+    
+    // Voxel Bat Body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.3), mat);
+    body.position.y = 0.2;
+    group.add(body);
+    
+    // Head (hanging down)
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mat);
+    head.position.y = -0.1;
+    group.add(head);
+
+    // Wings (closed)
+    const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.25), mat);
+    wingL.position.set(-0.15, 0.2, 0.05);
+    const wingR = wingL.clone();
+    wingR.position.x = 0.15;
+    group.add(wingL, wingR);
+
+    group.scale.set(scale, scale, scale);
+    group.name = `animal_${type}_${Math.random().toString(36).substr(2, 9)}`;
+    return group;
+  }
   const emoji = '🦇';
   const group = new THREE.Group();
   
@@ -494,41 +551,41 @@ const createAnimal = (type: 'HANGING_BAT', scale: number = 0.5) => {
   return group;
 };
 
-const create3DBear = (scale: number = 1) => {
+const create3DBear = (scale: number = 1, theme: ThemeType = ThemeType.FOREST) => {
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshPhongMaterial({ color: 0x5c4033 });
+  const isBlocky = theme === ThemeType.BLOCKY;
+  const bodyMat = new THREE.MeshPhongMaterial({ color: 0x5c4033, flatShading: true });
   
-  // Body
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.4), bodyMat);
-  body.position.y = 0.25;
+  // Body - Always boxy for bears usually but let's make it explicitly voxel for blocky theme
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6 * scale, 0.5 * scale, 0.4 * scale), bodyMat);
+  body.position.y = 0.25 * scale;
   group.add(body);
   
   // Head
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), bodyMat);
-  head.position.set(0, 0.6, 0);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.35 * scale, 0.35 * scale, 0.35 * scale), bodyMat);
+  head.position.set(0, 0.6 * scale, 0);
   group.add(head);
   
   // Ears
-  const earM = new THREE.MeshPhongMaterial({ color: 0x3d2b1f });
-  const earL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), earM);
-  earL.position.set(-0.15, 0.75, 0);
+  const earM = new THREE.MeshPhongMaterial({ color: isBlocky ? 0x222222 : 0x3d2b1f, flatShading: true });
+  const earL = new THREE.Mesh(new THREE.BoxGeometry(0.1 * scale, 0.1 * scale, 0.05 * scale), earM);
+  earL.position.set(-0.15 * scale, 0.75 * scale, 0);
   const earR = earL.clone();
-  earR.position.x = 0.15;
+  earR.position.x = 0.15 * scale;
   group.add(earL, earR);
   
   // Legs
-  const legGeo = new THREE.BoxGeometry(0.15, 0.2, 0.15);
+  const legGeo = new THREE.BoxGeometry(0.15 * scale, 0.2 * scale, 0.15 * scale);
   const leg1 = new THREE.Mesh(legGeo, bodyMat);
-  leg1.position.set(-0.2, 0.1, -0.1);
+  leg1.position.set(-0.2 * scale, 0.1 * scale, -0.1 * scale);
   const leg2 = leg1.clone();
-  leg2.position.x = 0.2;
+  leg2.position.x = 0.2 * scale;
   const leg3 = leg1.clone();
-  leg3.position.z = 0.1;
+  leg3.position.z = 0.1 * scale;
   const leg4 = leg2.clone();
-  leg4.position.z = 0.1;
+  leg4.position.z = 0.1 * scale;
   group.add(leg1, leg2, leg3, leg4);
 
-  group.scale.set(scale, scale, scale);
   group.traverse(child => {
     if (child instanceof THREE.Mesh) {
       child.castShadow = true;
@@ -559,49 +616,80 @@ const createEmojiSprite = (emoji: string, scale: number = 0.72) => {
 
 // --- ENVIRONMENT: MOUNTAINS & GROUND ---
 const createMountain = (scale: number = 10, theme: ThemeType = ThemeType.FOREST) => {
-  const isNeon = theme === ThemeType.NEON;
+  const isBlocky = theme === ThemeType.BLOCKY;
+  const isVoid = theme === ThemeType.VOID;
+  
+  if (isBlocky) {
+    const group = new THREE.Group();
+    const size = scale * 0.5;
+    for (let i = 0; i < 4; i++) {
+        const layerSize = size * (1 - i * 0.25);
+        const layer = new THREE.Mesh(
+            new THREE.BoxGeometry(layerSize, 2, layerSize),
+            new THREE.MeshPhongMaterial({ color: i === 0 ? MC_COLORS.STONE : MC_COLORS.BEDROCK, flatShading: true })
+        );
+        layer.position.y = i * 2;
+        group.add(layer);
+    }
+    return group;
+  }
+  
   const sprite = createEmojiSprite('⛰️', scale * 0.8);
-  if (isNeon) {
+  if (isVoid) {
     sprite.userData.pulsate = true;
     (sprite as any).isMountain = true;
   }
   return sprite;
 };
 
-const NEON_PALETTE = [0x39FF14, 0xFF2D78]; // Lime Green and Hot Pink
-
 const createTree = (scale: number = 1, theme: ThemeType = ThemeType.FOREST) => {
   const group = new THREE.Group();
-  const isNeon = theme === ThemeType.NEON;
+  const isBlocky = theme === ThemeType.BLOCKY;
+  const isVoid = theme === ThemeType.VOID;
   
-  const neonColor = NEON_PALETTE[Math.floor(Math.random() * NEON_PALETTE.length)];
-  
+  if (isBlocky) {
+    // Voxel Tree
+    const trunk = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3 * scale, 1.2 * scale, 0.3 * scale),
+        new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LOG, flatShading: true })
+    );
+    trunk.position.y = 0.6 * scale;
+    group.add(trunk);
+
+    const foliage = new THREE.Mesh(
+        new THREE.BoxGeometry(1.0 * scale, 1.0 * scale, 1.0 * scale),
+        new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LEAVES, flatShading: true })
+    );
+    foliage.position.y = 1.5 * scale;
+    group.add(foliage);
+    return group;
+  }
+
   // Trunk
   const trunkGeo = new THREE.CylinderGeometry(0.1 * scale, 0.15 * scale, 0.8 * scale, 8);
-  const trunkMat = isNeon 
-    ? new THREE.MeshStandardMaterial({ color: 0x050505, emissive: neonColor, emissiveIntensity: 1.2 })
+  const trunkMat = isVoid 
+    ? new THREE.MeshStandardMaterial({ color: 0x050505, emissive: 0x2d1b0a, emissiveIntensity: 1.2 })
     : new THREE.MeshPhongMaterial({ color: 0x2d1b0a }); // Natural brown trunk
   const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  if (isNeon) trunk.userData.pulsate = true;
+  if (isVoid) trunk.userData.pulsate = true;
   trunk.position.y = 0.4 * scale;
-  if (!isNeon) trunk.castShadow = true;
+  if (!isVoid) trunk.castShadow = true;
   group.add(trunk);
   
   // Dense Foliage - Multi-layered
   for (let i = 0; i < 3; i++) {
-    const foliageNeonColor = NEON_PALETTE[Math.floor(Math.random() * NEON_PALETTE.length)];
     const foliageGeo = new THREE.DodecahedronGeometry(0.4 * scale, 0);
-    const foliageMat = isNeon
-      ? new THREE.MeshStandardMaterial({ color: 0x050505, emissive: foliageNeonColor, emissiveIntensity: 0.8, transparent: true, opacity: 0.9 })
+    const foliageMat = isVoid
+      ? new THREE.MeshStandardMaterial({ color: 0x050505, emissive: 0x1b3d1b, emissiveIntensity: 0.8, transparent: true, opacity: 0.9 })
       : new THREE.MeshPhongMaterial({ color: 0x1b3d1b }); // Natural deep forest green foliage
     const foliage = new THREE.Mesh(foliageGeo, foliageMat);
-    if (isNeon) foliage.userData.pulsate = true;
+    if (isVoid) foliage.userData.pulsate = true;
     foliage.position.y = (0.7 + i * 0.3) * scale;
     foliage.position.x = (Math.random() - 0.5) * 0.2;
     foliage.position.z = (Math.random() - 0.5) * 0.2;
     foliage.rotation.y = Math.random() * Math.PI;
     foliage.scale.set(1.2 - i * 0.2, 0.6, 1.2 - i * 0.2);
-    if (!isNeon) foliage.castShadow = true;
+    if (!isVoid) foliage.castShadow = true;
     group.add(foliage);
   }
   
@@ -609,8 +697,30 @@ const createTree = (scale: number = 1, theme: ThemeType = ThemeType.FOREST) => {
 };
 
 const createFort = (theme: ThemeType = ThemeType.FOREST) => {
+  const isBlocky = theme === ThemeType.BLOCKY;
+  const isVoid = theme === ThemeType.VOID;
+  if (isBlocky) {
+    const group = new THREE.Group();
+    // Voxel Castle
+    const base = new THREE.Mesh(
+        new THREE.BoxGeometry(4, 3, 4),
+        new THREE.MeshPhongMaterial({ color: MC_COLORS.STONE, flatShading: true })
+    );
+    base.position.y = 1.5;
+    group.add(base);
+
+    for (let i = 0; i < 4; i++) {
+        const tower = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 4, 1),
+            new THREE.MeshPhongMaterial({ color: MC_COLORS.BEDROCK, flatShading: true })
+        );
+        tower.position.set(i < 2 ? 1.8 : -1.8, 2, i % 2 === 0 ? 1.8 : -1.8);
+        group.add(tower);
+    }
+    return group;
+  }
   const sprite = createEmojiSprite('🏰', 4);
-  if (theme === ThemeType.NEON) {
+  if (isVoid) {
     sprite.userData.pulsate = true;
   }
   return sprite;
@@ -618,7 +728,7 @@ const createFort = (theme: ThemeType = ThemeType.FOREST) => {
 
 // --- MAIN COMPONENT ---
 
-export default function NeonGrid() {
+export default function BlockyBoard() {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -646,16 +756,16 @@ export default function NeonGrid() {
   const [setupPlayerNames, setSetupPlayerNames] = useState<string[]>(['Player 1', 'Player 2', 'Player 3', 'Player 4']);
   
   const PLAYER_COLORS = [
-    '#39FF14', // Neon Green
-    '#FF2D78', // Hot Pink
-    '#00F5FF', // Cyan
-    '#FFE600', // Yellow
-    '#BF5FFF', // Purple
-    '#FF4500', // Orange Red
-    '#00FF7F', // Spring Green
+    '#5D9948', // Grass Green
+    '#A1643F', // Brown
+    '#64F2F2', // Diamond Blue
+    '#FFEB3B', // Yellow
+    '#7E57C2', // Purple
+    '#FF7043', // Orange
+    '#4CAF50', // Green
     '#FFD700', // Gold
-    '#1E90FF', // Dodger Blue
-    '#FF1493'  // Deep Pink
+    '#2196F3', // Blue
+    '#E91E63'  // Pink
   ];
 
   const [setupPlayerColors, setSetupPlayerColors] = useState<string[]>(PLAYER_COLORS.slice(0, 4));
@@ -724,10 +834,10 @@ export default function NeonGrid() {
     cagedTurns: 0 
   };
 
-  const uiColors = theme === ThemeType.NEON 
-    ? { primary: '#39FF14', secondary: '#FF2D78', accent: '#FF2D78', bg: 'bg-[#050505]', border: 'border-[#39FF14]/30', text: 'text-[#39FF14]', glow: 'shadow-[0_0_15px_rgba(57,255,20,0.3)]' }
+  const uiColors = theme === ThemeType.BLOCKY 
+    ? { primary: '#A1643F', secondary: '#5D9948', accent: '#64F2F2', bg: 'bg-[#795548]', border: 'border-[#A1643F]/50', text: 'text-[#efebe9]', glow: 'shadow-[0_0_15px_rgba(161,100,63,0.4)]' }
     : theme === ThemeType.VOID
-    ? { primary: '#BF5FFF', secondary: '#00F5FF', accent: '#00F5FF', bg: 'bg-stone-950', border: 'border-[#BF5FFF]/30', text: 'text-[#BF5FFF]', glow: 'shadow-[0_0_15px_rgba(191,95,255,0.3)]' }
+    ? { primary: '#00A2FF', secondary: '#FFFFFF', accent: '#00A2FF', bg: 'bg-[#1B1D1F]', border: 'border-[#393B3D]/80', text: 'text-white', glow: 'shadow-[0_0_15px_rgba(0,162,255,0.3)]' }
     : { primary: '#10b981', secondary: '#f59e0b', accent: '#3b82f6', bg: 'bg-emerald-950', border: 'border-emerald-500/30', text: 'text-emerald-400', glow: 'shadow-[0_0_15px_rgba(16,185,129,0.2)]' };
 
   const currentPlayerRef = useRef(0);
@@ -760,38 +870,38 @@ export default function NeonGrid() {
       pulsatingObjectsRef.current = []; // Reset when theme changes
       const ground = sceneRef.current.getObjectByName("ground_base") as THREE.Mesh;
       const particles = particlesRef.current;
-      if (theme === ThemeType.NEON) {
-        if (rendererRef.current) rendererRef.current.shadowMap.enabled = false;
-        sceneRef.current.background = new THREE.Color(0x050505);
-        sceneRef.current.fog = new THREE.FogExp2(0x050505, fogDensity);
+      if (theme === ThemeType.BLOCKY) {
+        if (rendererRef.current) rendererRef.current.shadowMap.enabled = true;
+        sceneRef.current.background = new THREE.Color(0x78A7FF); // Sky blue
+        sceneRef.current.fog = new THREE.FogExp2(0x78A7FF, fogDensity);
         
-        if (particles) (particles.material as THREE.PointsMaterial).color.setHex(0xFF2D78);
+        if (particles) (particles.material as THREE.PointsMaterial).color.setHex(0xFFFFFF); // White clouds
 
-        const moonLight = sceneRef.current.children.find(c => c instanceof THREE.DirectionalLight && (c.color.getHex() === 0x39FF14 || c.color.getHex() === 0x1a052a || c.color.getHex() === 0xBF5FFF)) as THREE.DirectionalLight;
-        if (moonLight) {
-          moonLight.intensity = 1.2;
-          moonLight.color.setHex(0xFF2D78); // Pink Moonlight
+        const sunLight = sceneRef.current.children.find(c => c instanceof THREE.DirectionalLight) as THREE.DirectionalLight;
+        if (sunLight) {
+          sunLight.intensity = 1.4;
+          sunLight.color.setHex(0xFFFFFF);
         }
 
         if (ground) {
           const groundMat = ground.material as THREE.MeshStandardMaterial;
-          groundMat.color.setHex(0x000000);
-          groundMat.emissive.setHex(0xFF2D78); // Pink aura
-          groundMat.emissiveIntensity = 0.4;
-          groundMat.roughness = 0.8;
-          groundMat.metalness = 0.1;
+          groundMat.color.setHex(MC_COLORS.DIRT);
+          groundMat.emissive.setHex(0x221100);
+          groundMat.emissiveIntensity = 0.05;
+          groundMat.roughness = 1.0;
+          groundMat.metalness = 0.0;
         }
       } else if (theme === ThemeType.VOID) {
         if (rendererRef.current) rendererRef.current.shadowMap.enabled = false;
-        sceneRef.current.background = new THREE.Color(0x000000);
-        sceneRef.current.fog = new THREE.FogExp2(0x000000, fogDensity);
+        sceneRef.current.background = new THREE.Color(0x1B1D1F);
+        sceneRef.current.fog = new THREE.FogExp2(0x1B1D1F, fogDensity);
         
-        if (particles) (particles.material as THREE.PointsMaterial).color.setHex(0x333333);
+        if (particles) (particles.material as THREE.PointsMaterial).color.setHex(0x00A2FF);
 
         const moonLight = sceneRef.current.children.find(c => c instanceof THREE.DirectionalLight) as THREE.DirectionalLight;
         if (moonLight) {
-          moonLight.intensity = 0.5;
-          moonLight.color.setHex(0x4444FF); // Blueish faint light
+          moonLight.intensity = 1.0;
+          moonLight.color.setHex(0x00A2FF); // Roblox Blueish light
         }
 
         if (ground) {
@@ -854,8 +964,8 @@ export default function NeonGrid() {
       const isBot = setupPlayerCount === 1 && i === 1;
       initialPlayers.push({
         id: i,
-        name: isBot ? "CyberBot-ALPHA" : (setupPlayerNames[i] || `Player ${i + 1}`),
-        color: isBot ? "#39FF14" : setupPlayerColors[i],
+        name: isBot ? "BlockBot-ONE" : (setupPlayerNames[i] || `Player ${i + 1}`),
+        color: isBot ? "#5D9948" : setupPlayerColors[i],
         position: 1,
         coins: 50,
         inventory: [],
@@ -1372,7 +1482,20 @@ export default function NeonGrid() {
           const end = Math.max(2, t - back);
           const predatorTypes = ['SNAKE', 'BEAR', 'RHINO', 'DINO'];
           const pType = predatorTypes[Math.floor(Math.random() * predatorTypes.length)];
-          newPredators.push({ start: t, end, type: pType, label: `${pType} AMBUSH: BACK TO ${end}` });
+          const isVoid = theme === ThemeType.VOID;
+          let pLabel = pType;
+          if (isVoid) {
+            if (pType === 'BEAR') pLabel = '🐯 TIGER';
+            else if (pType === 'RHINO') pLabel = '🐘 ELEPHANT';
+            else if (pType === 'SNAKE') pLabel = '🐍 SNAKE';
+            else if (pType === 'DINO') pLabel = '🦖 DINO';
+          } else {
+            if (pType === 'BEAR') pLabel = '🐻 BEAR';
+            else if (pType === 'RHINO') pLabel = '🦏 RHINO';
+            else if (pType === 'SNAKE') pLabel = '🐍 SNAKE';
+            else if (pType === 'DINO') pLabel = '🦖 DINO';
+          }
+          newPredators.push({ start: t, end, type: pType, label: `${pLabel} AMBUSH: BACK TO ${end}` });
           occupied.add(end); // Landing is safe
         }
         
@@ -1484,7 +1607,7 @@ export default function NeonGrid() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
-    renderer.shadowMap.enabled = theme === ThemeType.FOREST; // Disable shadows in Neon for performance booster
+    renderer.shadowMap.enabled = theme !== ThemeType.VOID; // Disable shadows in Void for visibility
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.style.position = 'absolute';
     renderer.domElement.style.top = '0';
@@ -1720,8 +1843,8 @@ export default function NeonGrid() {
         coin.traverse((mesh: any) => {
           if (mesh.material && mesh.material.emissiveIntensity !== undefined) {
             mesh.material.emissiveIntensity = 0.3 + pulse * 0.7;
-            if (theme === ThemeType.NEON) {
-              mesh.material.emissive.setHex(0xFF00FF);
+            if (theme === ThemeType.BLOCKY) {
+              mesh.material.emissive.setHex(0xFFFF00);
             } else {
               mesh.material.emissive.setHex(0xFFD700);
             }
@@ -1778,10 +1901,15 @@ export default function NeonGrid() {
     const scene = sceneRef.current;
     const renderer = rendererRef.current;
 
-    const isNeon = theme === ThemeType.NEON;
-    if (isNeon) {
-      scene.background = new THREE.Color(0x050505);
-      scene.fog = new THREE.FogExp2(0x050505, 0.012);
+    const isBlocky = theme === ThemeType.BLOCKY;
+    const isVoid = theme === ThemeType.VOID;
+    if (isBlocky) {
+      scene.background = new THREE.Color(0x78A7FF);
+      scene.fog = new THREE.FogExp2(0x78A7FF, 0.012);
+      renderer.shadowMap.enabled = true;
+    } else if (isVoid) {
+      scene.background = new THREE.Color(0x1B1D1F);
+      scene.fog = new THREE.FogExp2(0x1B1D1F, 0.012);
       renderer.shadowMap.enabled = false;
     } else {
       scene.background = new THREE.Color(0x050a05);
@@ -1792,10 +1920,10 @@ export default function NeonGrid() {
     const ground = scene.getObjectByName("ground_base") as THREE.Mesh;
     if (ground) {
       const mat = ground.material as THREE.MeshStandardMaterial;
-      if (isNeon) {
-        mat.color.set(0x0a0a0a);
-        mat.emissive.set(0x222222);
-        mat.roughness = 0.5;
+      if (isBlocky) {
+        mat.color.set(MC_COLORS.DIRT);
+        mat.emissive.set(0x221100);
+        mat.roughness = 1.0;
       } else {
         mat.color.set(0x262615); // Natural dark forest floor
         mat.emissive.set(0x020502); // Subtle biological glow
@@ -1804,10 +1932,10 @@ export default function NeonGrid() {
       }
     }
 
-    // Update moonlight
+    // Update sunlight
     scene.traverse((child) => {
       if (child instanceof THREE.DirectionalLight && child.intensity === 0.6) {
-        child.color.set(isNeon ? 0x00FFFF : 0x39FF14);
+        child.color.set(isBlocky ? 0xFFFFFF : 0x39FF14);
       }
     });
 
@@ -1818,7 +1946,7 @@ export default function NeonGrid() {
       for (let i = 0; i < 15; i++) {
         const mntScale = 25 + Math.random() * 35;
         const mnt = createMountain(mntScale, theme);
-        if (isNeon) pulsatingObjectsRef.current.push(mnt);
+        if (theme === ThemeType.VOID) pulsatingObjectsRef.current.push(mnt as any);
         const angle = (i / 15) * Math.PI * 2;
         const dist = 80 + Math.random() * 50;
         mnt.position.set(Math.cos(angle) * dist, -5, Math.sin(angle) * dist);
@@ -1831,10 +1959,10 @@ export default function NeonGrid() {
   useEffect(() => {
     if (diceRef.current) {
       const skin = DICE_SKINS[selectedDiceSkin];
-      if (theme === ThemeType.NEON) {
-        // Neon dice is a sprite, might not have MeshPhongMaterial
-        if (diceRef.current instanceof THREE.Sprite) {
-          (diceRef.current.material as THREE.SpriteMaterial).color.setHex(skin.color);
+      if (theme === ThemeType.BLOCKY) {
+        if (diceRef.current instanceof THREE.Mesh) {
+          (diceRef.current.material as THREE.MeshPhongMaterial).color.setHex(skin.color);
+          (diceRef.current.material as THREE.MeshPhongMaterial).emissive.setHex(skin.emissive);
         }
       } else if (diceRef.current instanceof THREE.Mesh) {
         (diceRef.current.material as THREE.MeshPhongMaterial).color.setHex(skin.color);
@@ -1859,14 +1987,10 @@ export default function NeonGrid() {
     // Update Dice for the theme
     if (diceRef.current) scene.remove(diceRef.current);
     let dice;
-    if (theme === ThemeType.NEON) {
-      dice = createEmojiSprite('🎲', 1.2);
-    } else {
-      const skin = DICE_SKINS[selectedDiceSkin];
-      const diceGeo = new THREE.BoxGeometry(1, 1, 1);
-      const diceMat = new THREE.MeshPhongMaterial({ color: skin.color, emissive: skin.emissive });
-      dice = new THREE.Mesh(diceGeo, diceMat);
-    }
+    const skin = DICE_SKINS[selectedDiceSkin];
+    const diceGeo = new THREE.BoxGeometry(1, 1, 1);
+    const diceMat = new THREE.MeshPhongMaterial({ color: skin.color, emissive: skin.emissive });
+    dice = new THREE.Mesh(diceGeo, diceMat);
     dice.position.set(7, 0.5, 7);
     scene.add(dice);
     diceRef.current = dice as any;
@@ -1874,72 +1998,41 @@ export default function NeonGrid() {
     // Update particles for the theme
     if (particlesRef.current) {
       const pMat = particlesRef.current.material as THREE.PointsMaterial;
-      pMat.color.set(theme === ThemeType.NEON ? 0xFF2D78 : 0x39FF14);
+      pMat.color.set(theme === ThemeType.BLOCKY ? 0xFFFFFF : 0x39FF14);
     }
 
     for (let i = 1; i <= 100; i++) {
-      const coords = getTileCoords(i);
-      
-      // Jungle Stone Biomes
-      let stoneColor = 0x444444; // Grey
-      if (theme === ThemeType.NEON) {
-        stoneColor = 0x111111;
-      } else {
-        // Natural stone with mossy variations
-        const stoneMix = [
-          0x444444, 0x555555, // Stone grey
-          0x2d4c1e, 0x3a5f0b, // Mossy green
-          0x3d3d3d, 0x1a2a1a  // Deep dark earth/stone
-        ];
-        stoneColor = stoneMix[(i + Math.floor(i/7)) % stoneMix.length];
-      }
-      
-      // Background Scenery for Neon Mode
-      if (theme === ThemeType.NEON) {
-        // Significantly reduced background scenery for performance
-        if (i % 15 === 0) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = 18 + Math.random() * 15;
-          const bgTree = createTree(2.5 + Math.random() * 2, theme);
-          bgTree.position.set(Math.cos(angle) * dist, -0.2, Math.sin(angle) * dist);
-          bgTree.traverse((child) => {
-            if ((child as any).userData?.pulsate) pulsatingObjectsRef.current.push(child as THREE.Mesh);
-          });
-          staticGroup.add(bgTree);
+        const coords = getTileCoords(i);
+        
+        // Jungle Stone Biomes
+        let stoneColor = 0x444444; // Grey
+        if (theme === ThemeType.BLOCKY) {
+          stoneColor = MC_COLORS.STONE;
+        } else {
+          // Natural stone with mossy variations
+          const stoneMix = [
+            0x444444, 0x555555, // Stone grey
+            0x2d4c1e, 0x3a5f0b, // Mossy green
+            0x3d3d3d, 0x1a2a1a  // Deep dark earth/stone
+          ];
+          stoneColor = stoneMix[(i + Math.floor(i/7)) % stoneMix.length];
         }
-        if (i % 25 === 0) {
-           const angle = Math.random() * Math.PI * 2;
-           const dist = 14 + Math.random() * 12;
-           const stoneScale = 2 + Math.random() * 3;
-           const color = NEON_PALETTE[Math.floor(Math.random() * NEON_PALETTE.length)];
-           const rock = new THREE.Mesh(
-             new THREE.DodecahedronGeometry(stoneScale, 0),
-             new THREE.MeshStandardMaterial({ color: 0x050505, emissive: color, emissiveIntensity: 0.6 })
-           );
-           rock.position.set(Math.cos(angle) * dist, -0.5, Math.sin(angle) * dist);
-           rock.userData.pulsate = true;
-           pulsatingObjectsRef.current.push(rock);
-           staticGroup.add(rock);
+        
+        // Background Scenery for Blocky Mode
+        if (theme === ThemeType.BLOCKY) {
+          if (i % 20 === 0) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 20 + Math.random() * 15;
+            const bgTree = createTree(3 + Math.random() * 2, theme);
+            bgTree.position.set(Math.cos(angle) * dist, -0.2, Math.sin(angle) * dist);
+            staticGroup.add(bgTree);
+          }
         }
-      }
-      
-      const stoneScale = 0.8 + Math.random() * 0.4;
-      // In Neon mode, maybe make stones look futuristic?
-      let tile;
-      if (theme === ThemeType.NEON) {
-        const tileColor = NEON_PALETTE[Math.floor(Math.random() * NEON_PALETTE.length)];
-        tile = new THREE.Mesh(
-           new THREE.PlaneGeometry(0.95 * stoneScale, 0.95 * stoneScale), 
-           new THREE.MeshStandardMaterial({ color: 0x010101, emissive: tileColor, emissiveIntensity: 1.0, side: THREE.DoubleSide })
-        );
-        tile.rotation.x = -Math.PI / 2;
-        tile.userData.pulsate = true;
-        pulsatingObjectsRef.current.push(tile);
-      } else {
-        tile = createStoneTile(stoneScale, stoneColor);
-      }
-      tile.position.set(coords.x, coords.y - 0.2, coords.z);
-      staticGroup.add(tile);
+        
+        const stoneScale = 0.8 + Math.random() * 0.4;
+        const tile = createStoneTile(stoneScale, stoneColor, theme);
+        tile.position.set(coords.x, coords.y - 0.2, coords.z);
+        staticGroup.add(tile);
       
       // Even Denser Jungle Foliage
       const density = 0.25; 
@@ -1975,7 +2068,7 @@ export default function NeonGrid() {
 
           // Add hanging bats
           if (Math.random() > 0.85) {
-            const bat = createAnimal('HANGING_BAT', 0.4);
+            const bat = createAnimal('HANGING_BAT', 0.4, theme);
             bat.position.set(treePos.x + (Math.random()-0.5), coords.y + 0.6 * treeScale, treePos.z + (Math.random()-0.5));
             animalsGroup.add(bat);
           }
@@ -2033,9 +2126,9 @@ export default function NeonGrid() {
       else if (t.type === 'CAR') tColor = 0xFFFF00; // Yellow (or another choice from the set)
 
       const material = new THREE.LineDashedMaterial({ 
-        color: isBroken ? 0x444444 : (theme === ThemeType.NEON ? 0x00FFFF : tColor),
+        color: isBroken ? 0x444444 : (theme === ThemeType.BLOCKY ? 0x64F2F2 : tColor),
         transparent: true,
-        opacity: theme === ThemeType.NEON ? 0.4 : 0.1,
+        opacity: theme === ThemeType.BLOCKY ? 0.3 : 0.1,
         dashSize: 0.2,
         gapSize: 0.1
       });
@@ -2054,7 +2147,7 @@ export default function NeonGrid() {
       if (isBroken) (sprite.material as THREE.SpriteMaterial).color.set(0x444444);
       transportObj.add(sprite);
 
-      if (theme === ThemeType.NEON) {
+      if (theme === ThemeType.BLOCKY) {
         const glow = new THREE.PointLight(isBroken ? 0x444444 : tColor, 0.5, 2);
         glow.position.set(0, 0.5, 0);
         transportObj.add(glow);
@@ -2092,9 +2185,9 @@ export default function NeonGrid() {
       const points = curve.getPoints(30);
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const material = new THREE.LineDashedMaterial({ 
-        color: theme === ThemeType.NEON ? 0xFF00FF : 0x990000, 
+        color: theme === ThemeType.BLOCKY ? 0xFF0000 : 0x990000, 
         transparent: true, 
-        opacity: theme === ThemeType.NEON ? 0.4 : 0.1,
+        opacity: theme === ThemeType.BLOCKY ? 0.3 : 0.1,
         dashSize: 0.2,
         gapSize: 0.1
       });
@@ -2104,20 +2197,21 @@ export default function NeonGrid() {
  
       let predObj;
       const baseScale = 1.62; // Increased by 20%
+      const isVoid = theme === ThemeType.VOID;
       
       if (p.type === 'SNAKE') {
         predObj = createEmojiSprite('🐍', baseScale);
       } else if (p.type === 'RHINO') {
-        predObj = createEmojiSprite('🦏', baseScale);
+        predObj = createEmojiSprite(isVoid ? '🐘' : '🦏', baseScale);
       } else if (p.type === 'DINO') {
         predObj = createEmojiSprite('🦖', baseScale);
       } else if (p.type === 'BEAR') {
-        predObj = createEmojiSprite('🐻', baseScale);
+        predObj = createEmojiSprite(isVoid ? '🐯' : '🐻', baseScale);
       } else {
         predObj = createEmojiSprite('👾', baseScale);
       }
 
-      if (theme === ThemeType.NEON) {
+      if (theme === ThemeType.BLOCKY) {
         const glow = new THREE.PointLight(0xFF00FF, 0.5, 3);
         glow.position.set(0, 0.5, 0);
         predObj.add(glow);
@@ -2167,43 +2261,33 @@ export default function NeonGrid() {
     if (!isSceneReady || !playersRef.current) return;
     playersRef.current.clear();
     players.forEach(p => {
-      const isNeon = theme === ThemeType.NEON;
+      const isBlocky = theme === ThemeType.BLOCKY;
+      const isVoid = theme === ThemeType.VOID;
       const group = new THREE.Group();
-      // Increased by 30% (r=0.2 -> r=0.26, h=0.4 -> h=0.52)
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.26, 0.26, 0.52, 16),
-        isNeon 
-          ? new THREE.MeshStandardMaterial({ color: 0x000000, emissive: p.color, emissiveIntensity: 2, wireframe: true })
-          : new THREE.MeshPhongMaterial({ color: p.color, emissive: p.color, emissiveIntensity: 0.4 })
-      );
-      body.position.y = 0.26;
-      if (isNeon) {
-        body.userData.pulsate = true;
-        pulsatingObjectsRef.current.push(body);
-      }
       
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.234, 16, 16),
-        isNeon
-          ? new THREE.MeshStandardMaterial({ color: 0x000000, emissive: p.color, emissiveIntensity: 2, wireframe: true })
-          : new THREE.MeshPhongMaterial({ color: p.color })
+      const body = new THREE.Mesh(
+        isBlocky ? new THREE.BoxGeometry(0.5, 0.6, 0.3) : new THREE.CylinderGeometry(0.26, 0.26, 0.52, 16),
+        new THREE.MeshPhongMaterial({ color: p.color, emissive: p.color, emissiveIntensity: isBlocky ? 0.2 : 0.4 })
       );
-      head.position.y = 0.715;
-      if (isNeon) {
-        head.userData.pulsate = true;
-        pulsatingObjectsRef.current.push(head);
-      }
+      body.position.y = isBlocky ? 0.3 : 0.26;
+      
+      const headsSize = 0.4;
+      const head = new THREE.Mesh(
+        isBlocky ? new THREE.BoxGeometry( headsSize, headsSize, headsSize) : new THREE.SphereGeometry(0.234, 16, 16),
+        new THREE.MeshPhongMaterial({ color: p.color })
+      );
+      head.position.y = isBlocky ? 0.8 : 0.715;
 
       const visor = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, 0.065, 0.13),
-        new THREE.MeshPhongMaterial({ color: isNeon ? p.color : 0x000000 })
+        new THREE.BoxGeometry(isBlocky ? 0.3 : 0.26, 0.065, 0.13),
+        new THREE.MeshPhongMaterial({ color: 0x000000 })
       );
-      visor.position.set(0, 0.715, 0.156);
+      visor.position.set(0, isBlocky ? 0.8 : 0.715, isBlocky ? 0.2 : 0.156);
       
       group.add(body, head, visor);
 
-      if (isNeon) {
-        // Add a glowing base ring
+      if (isVoid) {
+        // Add a glowing base ring for void theme
         const ringGeo = new THREE.TorusGeometry(0.5, 0.05, 8, 32);
         const ringMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: p.color, emissiveIntensity: 3 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -2213,7 +2297,7 @@ export default function NeonGrid() {
         pulsatingObjectsRef.current.push(ring);
         group.add(ring);
 
-        // Subtle overhead light for the player
+        // Light for the player in dark themes
         const pLight = new THREE.PointLight(p.color, 1, 5);
         pLight.position.y = 1;
         group.add(pLight);
@@ -2290,13 +2374,21 @@ export default function NeonGrid() {
   useEffect(() => {
     if (!isSceneReady || !trapsRef.current) return;
     trapsRef.current.clear();
-    tntTiles.forEach(t => {
-      const isNeon = theme === ThemeType.NEON;
+      tntTiles.forEach(t => {
       let trap;
-      if (isNeon) {
-        trap = createEmojiSprite('💥', 1.5);
-        trap.userData.pulsate = true;
-        pulsatingObjectsRef.current.push(trap as any);
+      if (theme === ThemeType.BLOCKY) {
+        // Red voxel TNT
+        trap = new THREE.Group();
+        const box = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 0.8, 0.8),
+            new THREE.MeshPhongMaterial({ color: 0xCC0000, flatShading: true })
+        );
+        trap.add(box);
+        const white = new THREE.Mesh(
+            new THREE.BoxGeometry(0.82, 0.2, 0.82),
+            new THREE.MeshPhongMaterial({ color: 0xFFFFFF, flatShading: true })
+        );
+        trap.add(white);
       } else {
         trap = createCrater();
       }
@@ -2697,7 +2789,7 @@ export default function NeonGrid() {
     if (!currentP) return;
 
     // Intense music if near predator, rolling, or moving
-    const isNearPredator = PREDATORS.some(pred => {
+    const isNearPredator = predators.some(pred => {
       const dist = Math.abs(pred.start - currentP.position);
       return dist <= 3;
     });
@@ -2844,29 +2936,29 @@ export default function NeonGrid() {
   }, [currentP.coins]);
 
   return (
-    <div id="neon-app-root" className={`relative w-full h-screen overflow-hidden font-sans text-white select-none transition-colors duration-1000 ${theme === ThemeType.NEON ? 'bg-[#050505]' : 'bg-[#051a05]'}`}>
+    <div id="blocky-app-root" className={`relative w-full h-screen overflow-hidden font-sans text-white select-none transition-colors duration-1000 ${theme === ThemeType.BLOCKY ? 'bg-[#795548]' : 'bg-[#051a05]'}`}>
       {/* Spectator Dashboard */}
       {isSpectating && gameState !== 'SETUP' && (
         <div id="spectator-ui" className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-4">
-          <div className="bg-[#111827]/90 backdrop-blur-md border border-[#39FF14]/30 rounded-2xl p-4 flex items-center gap-6 shadow-2xl">
+          <div className="bg-[#111827]/90 backdrop-blur-md border border-[#5D9948]/30 rounded-2xl p-4 flex items-center gap-6 shadow-2xl">
             <div className="flex items-center gap-2 pr-4 border-r border-white/10">
-              <span className="text-[10px] font-black uppercase text-[#39FF14] tracking-widest">Auto</span>
+              <span className="text-[10px] font-black uppercase text-[#5D9948] tracking-widest">Auto</span>
               <button 
                 onClick={() => setIsAutoPlay(!isAutoPlay)}
-                className={`w-10 h-5 rounded-full relative transition-all ${isAutoPlay ? 'bg-[#39FF14]' : 'bg-white/10'}`}
+                className={`w-10 h-5 rounded-full relative transition-all ${isAutoPlay ? 'bg-[#5D9948]' : 'bg-white/10'}`}
               >
                 <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isAutoPlay ? 'left-6' : 'left-1'}`} />
               </button>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase text-[#39FF14] tracking-widest">Angle</span>
+              <span className="text-[10px] font-black uppercase text-[#5D9948] tracking-widest">Angle</span>
               <div className="flex bg-black/40 p-1 rounded-lg">
                 {(['FREE', 'TOP', 'ISO', 'FOLLOW'] as const).map(mode => (
                   <button
                     key={mode}
                     onClick={() => setCameraMode(mode)}
-                    className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${cameraMode === mode ? 'bg-[#39FF14] text-black shadow-[0_0_10px_rgba(57,255,20,0.4)]' : 'text-white/40 hover:text-white'}`}
+                    className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${cameraMode === mode ? 'bg-[#5D9948] text-black shadow-[0_0_10px_rgba(93,153,72,0.4)]' : 'text-white/40 hover:text-white'}`}
                   >
                     {mode}
                   </button>
@@ -2876,7 +2968,7 @@ export default function NeonGrid() {
 
             {cameraMode === 'FOLLOW' && (
               <div className="flex items-center gap-2 border-l border-white/10 pl-6">
-                <span className="text-[10px] font-black uppercase text-[#39FF14] tracking-widest">Target</span>
+                <span className="text-[10px] font-black uppercase text-[#5D9948] tracking-widest">Target</span>
                 <div className="flex gap-2">
                   {players.map((p, idx) => (
                     <button
@@ -2897,24 +2989,24 @@ export default function NeonGrid() {
               Exit
             </button>
           </div>
-          <div className="px-4 py-1 bg-[#39FF14] text-black text-[9px] font-black uppercase tracking-[0.3em] rounded-full animate-pulse">Spectator Perspective Active</div>
+          <div className="px-4 py-1 bg-[#5D9948] text-black text-[9px] font-black uppercase tracking-[0.3em] rounded-full animate-pulse">Spectator Perspective Active</div>
         </div>
       )}
 
       {gameState === 'SETUP' && (
         <div id="setup-overlay" className="fixed inset-0 z-[110] flex items-start justify-center bg-[#0a0a0c]/80 backdrop-blur-md p-4 sm:p-8 overflow-y-auto">
           <div className="absolute inset-0 opacity-10 pointer-events-none fixed">
-             <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#39FF14] rounded-full blur-[150px]"></div>
-             <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#BF5FFF] rounded-full blur-[150px]"></div>
+             <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#5D9948] rounded-full blur-[150px]"></div>
+             <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#866043] rounded-full blur-[150px]"></div>
           </div>
-          <div id="setup-modal" className="w-full max-w-lg bg-[#111827] border border-[#39FF14]/30 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative z-10 scale-in my-auto">
+          <div id="setup-modal" className="w-full max-w-lg bg-[#111827] border border-[#5D9948]/30 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative z-10 scale-in my-auto">
             <div className="text-center">
               <div className="flex justify-between items-center mb-2">
                 <div className="w-10 h-10" /> {/* Spacer */}
-                <h2 className="text-3xl font-black italic uppercase text-[#39FF14] tracking-tighter">Initialize Match</h2>
+                <h2 className="text-3xl font-black italic uppercase text-[#5D9948] tracking-tighter">Initialize Match</h2>
                 <button 
                   onClick={() => setIsLeaderboardOpen(true)}
-                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-[#39FF14] hover:bg-[#39FF14] hover:text-black transition-all shadow-xl"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-[#5D9948] hover:bg-[#5D9948] hover:text-black transition-all shadow-xl"
                   title="Hall of Fame"
                 >
                   <Trophy size={20} />
@@ -2925,17 +3017,17 @@ export default function NeonGrid() {
 
             <div className="space-y-6">
               <div>
-                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#39FF14] mb-3 block">Environmental Mission Layer</label>
+                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#5D9948] mb-3 block">Environmental Mission Layer</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {(Object.values(LEVELS)).map(lvl => (
                     <button 
                       key={lvl.id}
                       onClick={() => setCurrentLevelID(lvl.id)}
-                      className={`relative flex flex-col p-4 rounded-2xl border-2 text-left transition-all ${currentLevelID === lvl.id ? 'bg-[#39FF14] text-black border-[#39FF14] shadow-[0_0_20px_rgba(57,255,20,0.3)]' : 'bg-white/5 border-white/10 text-white hover:border-white/20'}`}
+                      className={`relative flex flex-col p-4 rounded-2xl border-2 text-left transition-all ${currentLevelID === lvl.id ? 'bg-[#5D9948] text-black border-[#5D9948] shadow-[0_0_20px_rgba(93,153,72,0.3)]' : 'bg-white/5 border-white/10 text-white hover:border-white/20'}`}
                     >
                       <div className="flex justify-between items-start mb-1">
                         <span className="font-black italic uppercase text-xs tracking-tighter">{lvl.id}</span>
-                        <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${currentLevelID === lvl.id ? 'bg-black/20' : 'bg-[#39FF14]/20 text-[#39FF14]'}`}>
+                        <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${currentLevelID === lvl.id ? 'bg-black/20' : 'bg-[#5D9948]/20 text-[#5D9948]'}`}>
                           {lvl.difficultyLabel}
                         </span>
                       </div>
@@ -2950,14 +3042,14 @@ export default function NeonGrid() {
               </div>
 
               <div>
-                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#39FF14] mb-3 block">Number of Players</label>
+                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#5D9948] mb-3 block">Number of Players</label>
                 <div className="flex gap-2">
                   {[1, 2, 3, 4].map(count => (
                     <button 
                       id={`player-count-${count}`}
                       key={count} 
                       onClick={() => setSetupPlayerCount(count)}
-                      className={`flex-1 py-4 rounded-xl border-2 font-black transition-all ${setupPlayerCount === count ? 'bg-[#39FF14] text-black border-[#39FF14] shadow-[0_0_20px_rgba(57,255,20,0.3)]' : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30 hover:text-white'}`}
+                      className={`flex-1 py-4 rounded-xl border-2 font-black transition-all ${setupPlayerCount === count ? 'bg-[#5D9948] text-black border-[#5D9948] shadow-[0_0_20px_rgba(93,153,72,0.3)]' : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30 hover:text-white'}`}
                     >
                       {count}
                     </button>
@@ -2966,10 +3058,10 @@ export default function NeonGrid() {
               </div>
 
               <div className="space-y-4">
-                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#39FF14] mb-3 block">Participant Identities</label>
+                <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#5D9948] mb-3 block">Participant Identities</label>
                 <div className="space-y-3 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
                   {Array.from({ length: setupPlayerCount }).map((_, i) => (
-                    <div id={`player-input-container-${i}`} key={i} className="flex flex-col gap-3 bg-white/5 p-4 rounded-2xl border border-white/10 focus-within:border-[#39FF14]/50 transition-colors">
+                    <div id={`player-input-container-${i}`} key={i} className="flex flex-col gap-3 bg-white/5 p-4 rounded-2xl border border-white/10 focus-within:border-[#5D9948]/50 transition-colors">
                       <div className="flex items-center gap-4">
                         <button 
                           className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-black shrink-0 shadow-lg transition-transform active:scale-90" 
@@ -3033,20 +3125,20 @@ export default function NeonGrid() {
               <button 
                 id="start-mission-btn"
                 onClick={startGame}
-                className="w-full py-6 bg-[#39FF14] text-black font-black text-2xl uppercase italic rounded-2xl shadow-[0_0_40px_rgba(57,255,20,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                className="w-full py-6 bg-[#A1643F] text-black font-black text-2xl uppercase italic rounded-2xl shadow-[0_0_40px_rgba(161,100,63,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
               >
                 <Compass size={28} />
-                Star Saffari
+                Start Safari
               </button>
             </div>
           </div>
         </div>
       )}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <div className="absolute top-10 left-20 w-1 h-1 bg-[#39FF14] rounded-full shadow-[0_0_10px_#39FF14]"></div>
-        <div className="absolute top-40 left-80 w-1 h-1 bg-[#BF5FFF] rounded-full shadow-[0_0_10px_#BF5FFF]"></div>
-        <div className="absolute top-80 left-1/4 w-1 h-1 bg-[#00F5FF] rounded-full shadow-[0_0_10px_#00F5FF]"></div>
-        <div className="absolute top-1/2 left-3/4 w-1 h-1 bg-[#FF2D78] rounded-full shadow-[0_0_10px_#FF2D78]"></div>
+        <div className="absolute top-10 left-20 w-1 h-1 bg-[#A1643F] rounded-full shadow-[0_0_10px_#A1643F]"></div>
+        <div className="absolute top-40 left-80 w-1 h-1 bg-[#866043] rounded-full shadow-[0_0_10px_#866043]"></div>
+        <div className="absolute top-80 left-1/4 w-1 h-1 bg-[#64F2F2] rounded-full shadow-[0_0_10px_#64F2F2]"></div>
+        <div className="absolute top-1/2 left-3/4 w-1 h-1 bg-[#8B4513] rounded-full shadow-[0_0_10px_#8B4513]"></div>
       </div>
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
@@ -3086,11 +3178,11 @@ export default function NeonGrid() {
       
       <header className={`relative z-20 flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4 border-b bg-black/40 backdrop-blur-md ${uiColors.border}`}>
         <div className="flex items-center gap-2 sm:gap-4">
-          <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-[#39FF14] to-[#BF5FFF] shadow-[0_0_15px_rgba(57,255,20,0.4)]">
+          <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-[#5D9948] to-[#866043] shadow-[0_0_15px_rgba(93,153,72,0.4)]">
             <Compass className="text-black" size={24} />
           </div>
           <h1 className={`text-xl sm:text-4xl font-black tracking-tighter italic uppercase font-display whitespace-nowrap`} style={{ textShadow: `0 0 15px ${uiColors.primary}80`, color: uiColors.primary }}>
-            Aww Jungle
+            Blocky Board
           </h1>
         </div>
         <div className="flex items-center gap-4 sm:gap-8">
@@ -3147,7 +3239,7 @@ export default function NeonGrid() {
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></div>
                       <span className="font-bold truncate max-w-[80px]">{p.name}</span>
                     </div>
-                    <span className="font-display opacity-80">TIL {p.position}</span>
+                    <span className="font-display font-black text-xs sm:text-xl opacity-90 tracking-widest">TIL {p.position}</span>
                   </div>
                 ))}
               </div>
@@ -3182,12 +3274,6 @@ export default function NeonGrid() {
                 <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6" style={{ color: uiColors.secondary }} />
                 <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: uiColors.secondary }}>Store</span>
               </button>
-              <div className="flex flex-col items-center mt-1 py-2 bg-black/30 backdrop-blur-md rounded-xl border border-white/5 shadow-lg w-full">
-                <span className="text-[8px] font-black uppercase text-white/40 tracking-[0.2em] mb-0.5">Board</span>
-                <p className="text-[12px] font-black text-[#39FF14] uppercase italic tracking-tighter leading-none">
-                  {currentLevelID}
-                </p>
-              </div>
             </section>
           )}
 
@@ -3204,11 +3290,11 @@ export default function NeonGrid() {
         <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center pointer-events-none bg-black/30 backdrop-blur-[2px]">
           <div className="relative">
             {/* Theme Decorative Overlays */}
-            {theme === ThemeType.NEON ? (
+            {theme === ThemeType.BLOCKY ? (
               <>
-                <div className="absolute -top-10 -left-10 text-4xl animate-bounce delay-100">⚡</div>
-                <div className="absolute -bottom-10 -right-10 text-4xl animate-bounce delay-300">🎆</div>
-                <div className="absolute -top-12 -right-12 text-4xl animate-pulse">🌌</div>
+                <div className="absolute -top-10 -left-10 text-4xl animate-bounce delay-100">⛏️</div>
+                <div className="absolute -bottom-10 -right-10 text-4xl animate-bounce delay-300">💎</div>
+                <div className="absolute -top-12 -right-12 text-4xl animate-pulse">🪵</div>
               </>
             ) : (
               <>
@@ -3219,16 +3305,16 @@ export default function NeonGrid() {
             )}
 
             {/* Pulsing Glow Background */}
-            <div className={`absolute inset-0 blur-[80px] opacity-25 animate-pulse rounded-full scale-110 ${theme === ThemeType.NEON ? 'bg-purple-500' : 'bg-emerald-500'}`} />
+            <div className={`absolute inset-0 blur-[80px] opacity-25 animate-pulse rounded-full scale-110 ${theme === ThemeType.BLOCKY ? 'bg-amber-700' : 'bg-emerald-500'}`} />
             
-            <div className={`relative w-32 h-32 sm:w-48 sm:h-48 bg-black/80 backdrop-blur-2xl border-4 sm:border-8 rounded-[2.5rem] flex items-center justify-center text-7xl sm:text-9xl font-black scale-in ring-1 ring-white/10 ${theme === ThemeType.NEON ? 'border-purple-500/60 shadow-[0_0_80px_rgba(168,85,247,0.4)] text-purple-400' : 'border-emerald-500/60 shadow-[0_0_80px_rgba(16,185,129,0.4)] text-emerald-400'}`}>
+            <div className={`relative w-32 h-32 sm:w-48 sm:h-48 bg-black/80 backdrop-blur-2xl border-4 sm:border-8 rounded-[2.5rem] flex items-center justify-center text-7xl sm:text-9xl font-black scale-in ring-1 ring-white/10 ${theme === ThemeType.BLOCKY ? 'border-amber-600/60 shadow-[0_0_80px_rgba(161,100,63,0.4)] text-amber-400' : 'border-emerald-500/60 shadow-[0_0_80px_rgba(16,185,129,0.4)] text-emerald-400'}`}>
                 <div className="animate-bounce">
                   {rollResult}
                 </div>
             </div>
             
-            <div className={`mt-8 text-center backdrop-blur-xl px-8 py-2.5 rounded-full border uppercase tracking-[0.4em] font-black italic scale-in delay-200 shadow-xl ${theme === ThemeType.NEON ? 'bg-purple-500/20 border-purple-500/30' : 'bg-emerald-500/20 border-emerald-500/30'}`}>
-              <span className={`text-sm sm:text-lg drop-shadow-[0_0_10px_rgba(16,185,129,0.5)] ${theme === ThemeType.NEON ? 'text-purple-300' : 'text-emerald-300'}`}>{theme === ThemeType.NEON ? 'Cyber Roll' : 'Jungle Roll'}</span>
+            <div className={`mt-8 text-center backdrop-blur-xl px-8 py-2.5 rounded-full border uppercase tracking-[0.4em] font-black italic scale-in delay-200 shadow-xl ${theme === ThemeType.BLOCKY ? 'bg-amber-900/40 border-amber-500/30' : 'bg-emerald-500/20 border-emerald-500/30'}`}>
+              <span className={`text-sm sm:text-lg drop-shadow-[0_0_10px_rgba(161,100,63,0.5)] ${theme === ThemeType.BLOCKY ? 'text-amber-200' : 'text-emerald-300'}`}>{theme === ThemeType.BLOCKY ? 'Blocky Roll' : 'Jungle Roll'}</span>
             </div>
           </div>
         </div>
@@ -3376,7 +3462,7 @@ export default function NeonGrid() {
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.7 }}
             onClick={() => setIsLeaderboardOpen(true)} 
-            className="mt-6 px-10 py-4 bg-white/5 border border-white/10 text-[#39FF14] font-black text-xl uppercase italic rounded-full transition-all hover:bg-white/10 z-[130]"
+            className="mt-6 px-10 py-4 bg-white/5 border border-white/10 text-[#5D9948] font-black text-xl uppercase italic rounded-full transition-all hover:bg-white/10 z-[130]"
           >
             View Hall of Fame
           </motion.button>
@@ -3394,16 +3480,16 @@ export default function NeonGrid() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="w-full max-w-2xl bg-gray-900 border border-[#39FF14]/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+              className="w-full max-w-2xl bg-gray-900 border border-[#5D9948]/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
             >
               <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/40">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-[#39FF14]/20 rounded-lg">
-                    <Trophy className="text-[#39FF14]" size={24} />
+                  <div className="p-2 bg-[#5D9948]/20 rounded-lg">
+                    <Trophy className="text-[#5D9948]" size={24} />
                   </div>
                   <div>
                     <h2 className="text-2xl font-black italic uppercase text-white tracking-widest">Hall of Fame</h2>
-                    <p className="text-[12px] text-[#39FF14] font-bold uppercase tracking-widest">{currentLevelID}</p>
+                    <p className="text-[12px] text-[#5D9948] font-bold uppercase tracking-widest">{currentLevelID}</p>
                   </div>
                 </div>
                 <button onClick={() => setIsLeaderboardOpen(false)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-all">
@@ -3414,7 +3500,7 @@ export default function NeonGrid() {
               <div className="flex-1 overflow-y-auto p-6">
                 {loadingLeaderboard ? (
                   <div className="h-full flex flex-col items-center justify-center gap-4 py-20">
-                    <div className="w-12 h-12 border-4 border-[#39FF14]/20 border-t-[#39FF14] rounded-full animate-spin" />
+                    <div className="w-12 h-12 border-4 border-[#5D9948]/20 border-t-[#5D9948] rounded-full animate-spin" />
                     <p className="text-xs font-black uppercase text-white/40 animate-pulse tracking-[0.3em]">Accessing Neural Records</p>
                   </div>
                 ) : leaderboardData.length === 0 ? (
@@ -3430,21 +3516,21 @@ export default function NeonGrid() {
                         animate={{ x: 0, opacity: 1 }}
                         transition={{ delay: idx * 0.05 }}
                         key={idx} 
-                        className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl group hover:bg-[#39FF14]/10 hover:border-[#39FF14]/20 transition-all"
+                        className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl group hover:bg-[#5D9948]/10 hover:border-[#5D9948]/20 transition-all"
                       >
                         <div className="flex items-center gap-4">
                           <div className={`w-8 h-8 flex items-center justify-center font-black rounded-lg ${idx === 0 ? 'bg-yellow-400 text-black shadow-[0_0_15px_rgba(250,204,21,0.5)]' : idx === 1 ? 'bg-gray-300 text-black' : idx === 2 ? 'bg-amber-600 text-black' : 'bg-white/10 text-white'}`}>
                             {idx + 1}
                           </div>
                           <div>
-                            <p className="font-black uppercase tracking-tight text-white group-hover:text-[#39FF14] mb-0.5">{entry.playerName}</p>
+                            <p className="font-black uppercase tracking-tight text-white group-hover:text-[#5D9948] mb-0.5">{entry.playerName}</p>
                             <p className="text-[9px] text-white/30 uppercase font-bold">{new Date(entry.timestamp?.seconds * 1000 || entry.timestamp).toLocaleDateString()}</p>
                           </div>
                         </div>
                         <div className="flex gap-6">
                           <div className="text-right">
                             <p className="text-[10px] font-black text-white/30 uppercase mb-1">Duration</p>
-                            <div className="flex items-center gap-1.5 text-[#39FF14] font-black">
+                            <div className="flex items-center gap-1.5 text-[#5D9948] font-black">
                               <Clock size={12} />
                               <span>{entry.turns} <small className="text-[9px] opacity-70">TURNS</small></span>
                             </div>
@@ -3468,7 +3554,7 @@ export default function NeonGrid() {
                    <button 
                     key={lvl}
                     onClick={() => fetchLeaderboard(lvl)}
-                    className={`flex-1 py-3 px-2 rounded-xl border text-[9px] font-black uppercase transition-all tracking-tighter ${currentLevelID === lvl ? 'bg-[#39FF14] text-black border-[#39FF14]' : 'bg-white/5 border-white/10 text-white/40 hover:text-white'}`}
+                    className={`flex-1 py-3 px-2 rounded-xl border text-[9px] font-black uppercase transition-all tracking-tighter ${currentLevelID === lvl ? 'bg-[#5D9948] text-black border-[#5D9948]' : 'bg-white/5 border-white/10 text-white/40 hover:text-white'}`}
                    >
                      {lvl.split(' ')[0]}
                    </button>
