@@ -1,0 +1,23 @@
+{
+  "entities": {
+    "Score": {
+      "title": "Leaderboard Score",
+      "description": "Represents a winning player's performance on a specific level.",
+      "type": "object",
+      "properties": {
+        "playerName": { "type": "string" },
+        "level": { "type": "string" },
+        "turns": { "type": "number" },
+        "coins": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["playerName", "level", "turns", "coins", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/leaderboard/{scoreId}": {
+      "schema": "Score",
+      "description": "Global leaderboard for all game levels."
+    }
+  }
+}
