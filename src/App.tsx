@@ -8,10 +8,17 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import gsap from 'gsap';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Award, BarChart3, Clock, Milestone, Compass, Palmtree, Info } from 'lucide-react';
-import { saveScore, getLeaderboard, ScoreEntry } from './firebase';
 import { 
-  Dice5, ShoppingCart, Palette, User, 
+  Trophy, Award, BarChart3, Clock, Milestone, Compass, Palmtree, Info,
+  Share2, LogOut, Globe, Users
+} from 'lucide-react';
+import { 
+  saveScore, getLeaderboard, ScoreEntry,
+  auth, googleProvider, signInWithPopup, onAuthStateChanged, signOut,
+  db, doc, setDoc, updateDoc, onSnapshot, getDoc, serverTimestamp, collection, query, orderBy
+} from './firebase';
+import { 
+  Dice5, ShoppingCart, Palette, User as UserIcon, 
   Coins, Shield, Trash2, Bomb, ArrowUpRight, 
   Rocket, Lock, X, Settings
 } from 'lucide-react';
@@ -186,20 +193,17 @@ const SoundEngine = {
   bgGain: null as GainNode | null,
   musicSource: null as AudioBufferSourceNode | null,
   intensity: 'calm' as 'calm' | 'intense',
-  isMuted: false,
+  isMuted: true,
   init() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       this.bgGain = this.ctx.createGain();
+      this.bgGain.gain.setValueAtTime(this.isMuted ? 0 : 0.05, this.ctx.currentTime);
       this.bgGain.connect(this.ctx.destination);
     }
   },
   setIntensity(newIntensity: 'calm' | 'intense') {
-    if (this.intensity === newIntensity) return;
     this.intensity = newIntensity;
-    if (this.musicSource) {
-      this.playBackground(); // Restart with new intensity
-    }
   },
   toggleMute() {
     this.isMuted = !this.isMuted;
@@ -209,54 +213,8 @@ const SoundEngine = {
     return this.isMuted;
   },
   playBackground() {
-    this.init();
-    if (!this.ctx || !this.bgGain) return;
-    
-    if (this.musicSource) {
-      try { this.musicSource.stop(); } catch(e) {}
-    }
-
-    const ctx = this.ctx;
-    const duration = 8;
-    const sampleRate = ctx.sampleRate;
-    const buffer = ctx.createBuffer(2, sampleRate * duration, sampleRate);
-    
-    for (let channel = 0; channel < 2; channel++) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < data.length; i++) {
-        const t = i / sampleRate;
-        
-        // Base low rumble (Wind/Jungle hum)
-        let sample = Math.sin(2 * Math.PI * 40 * t) * 0.02;
-        sample += Math.sin(2 * Math.PI * 41 * t) * 0.02;
-        
-        if (this.intensity === 'intense') {
-          // Intense rhythmic pulse
-          const beat = Math.floor(t * 4) % 4;
-          const pulse = Math.exp(-10 * (t % 0.25));
-          sample += Math.sin(2 * Math.PI * 60 * t) * pulse * 0.2;
-          // Tension string-like high note
-          sample += Math.sin(2 * Math.PI * 220 * t) * 0.01;
-        } else {
-          // Calm ambient pulses
-          const pulse = Math.exp(-2 * (t % 2));
-          sample += Math.sin(2 * Math.PI * 80 * t) * pulse * 0.05;
-          // Distant "bird" chirps
-          if (Math.random() > 0.9995) {
-             const chirp = Math.sin(2 * Math.PI * 2000 * t) * 0.01;
-             sample += chirp;
-          }
-        }
-        
-        data[i] = sample;
-      }
-    }
-
-    this.musicSource = ctx.createBufferSource();
-    this.musicSource.buffer = buffer;
-    this.musicSource.loop = true;
-    this.musicSource.connect(this.bgGain);
-    this.musicSource.start();
+    // Background sound removed at user request
+    return;
   },
   play(type: 'roll' | 'collect' | 'action' | 'fail' | 'win' | 'rocket' | 'explosion' | 'arrow' | 'tank') {
     if (this.isMuted) return;
@@ -277,32 +235,66 @@ const SoundEngine = {
     const now = ctx.currentTime;
     
     if (type === 'roll') {
+      // Atari-style movement blip
       osc.type = 'square';
-      osc.frequency.setValueAtTime(120, now);
-      osc.frequency.setValueAtTime(100, now + 0.05);
-      osc.frequency.setValueAtTime(80, now + 0.1);
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      osc.frequency.setValueAtTime(160, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.1);
     } else if (type === 'collect') {
+      // Classic Gold Coin "Ching"
       osc.type = 'triangle';
-      const freqs = [523.25, 659.25, 783.99, 1046.50];
-      freqs.forEach((f, i) => {
-        osc.frequency.setValueAtTime(f, now + i * 0.05);
-      });
+      osc.frequency.setValueAtTime(987.77, now); // B5
+      osc.frequency.setValueAtTime(1318.51, now + 0.05); // E6
       gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
     } else if (type === 'rocket') {
+      // Atari Missile Launch
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(80, now);
-      osc.frequency.exponentialRampToValueAtTime(800, now + 0.4);
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.6);
-    } else if (type === 'arrow') {
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1000, now);
-      osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+      osc.frequency.setValueAtTime(100, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.3);
       gain.gain.setValueAtTime(0.1, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      
+      const noise = ctx.createBufferSource();
+      const bufferSize = ctx.sampleRate * 0.3;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      noise.buffer = buffer;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.05, now);
+      noiseGain.gain.linearRampToValueAtTime(0, now + 0.3);
+      noise.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start();
+    } else if (type === 'arrow') {
+      // Simple "shing"
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1500, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.1);
+    } else if (type === 'explosion') {
+      // Atari-style white noise blast
+      const noise = ctx.createBufferSource();
+      const bufferSize = ctx.sampleRate * 0.4;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      noise.buffer = buffer;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.2, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+      noise.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(60, now);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.3);
     } else if (type === 'tank') {
       osc.type = 'square';
       osc.frequency.setValueAtTime(60, now);
@@ -319,25 +311,6 @@ const SoundEngine = {
       const noiseGain = ctx.createGain();
       noiseGain.gain.setValueAtTime(0.2, now);
       noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
-      noise.connect(noiseGain);
-      noiseGain.connect(ctx.destination);
-      noise.start();
-    } else if (type === 'explosion') {
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(200, now);
-      osc.frequency.exponentialRampToValueAtTime(30, now + 0.4);
-      gain.gain.setValueAtTime(0.4, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.5);
-      
-      const noise = ctx.createBufferSource();
-      const bufferSize = ctx.sampleRate * 0.5;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-      noise.buffer = buffer;
-      const noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.3, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
       noise.connect(noiseGain);
       noiseGain.connect(ctx.destination);
       noise.start();
@@ -400,9 +373,9 @@ const createCrater = () => {
 // --- PATH GENERATION (ORGANIC SERPENTINE TRAIL) ---
 const PATH_COORDS: {x: number, y: number, z: number}[] = (() => {
   const coords: {x: number, y: number, z: number}[] = [];
-  const spacing = 3.5; // Gap between rows/tiles to avoid overlap
+  const spacing = 3.5; 
   
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 200; i++) {
     const row = Math.floor(i / 10);
     let col = i % 10;
     
@@ -419,7 +392,7 @@ const PATH_COORDS: {x: number, y: number, z: number}[] = (() => {
     
     // Elevation
     let y = Math.sin(col * 0.4) * 0.5 + Math.cos(row * 0.4) * 0.5;
-    y += row * 0.1; // General ascent
+    y += row * 0.05; // Slightly reduced ascent for longer paths
     
     coords.push({x, y: Math.max(0, y), z});
   }
@@ -428,7 +401,7 @@ const PATH_COORDS: {x: number, y: number, z: number}[] = (() => {
 
 const getTileCoordsGlobal = (tileNumber: number) => {
   if (tileNumber === undefined || tileNumber === null || isNaN(tileNumber)) return PATH_COORDS[0];
-  const index = Math.max(0, Math.min(Math.floor(tileNumber) - 1, 99));
+  const index = Math.max(0, Math.min(Math.floor(tileNumber) - 1, 199));
   return PATH_COORDS[index];
 };
 
@@ -444,27 +417,31 @@ const MC_COLORS = {
   BEDROCK: 0x333333
 };
 
+// Optimization: Shared Unit Geometries
+const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+const UNIT_ICOSA = new THREE.IcosahedronGeometry(0.8, 1);
+const UNIT_DIRT_MAT = new THREE.MeshPhongMaterial({ color: MC_COLORS.DIRT, flatShading: true });
+const UNIT_GRASS_MAT = new THREE.MeshPhongMaterial({ color: MC_COLORS.GRASS, flatShading: true });
+const UNIT_TRUNK_MAT = new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LOG, flatShading: true });
+const UNIT_LEAF_MAT = new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LEAVES, flatShading: true });
+
 const createStoneTile = (scale: number, color: number, theme: ThemeType = ThemeType.FOREST) => {
   const isBlocky = theme === ThemeType.BLOCKY;
   if (isBlocky) {
     const group = new THREE.Group();
     // Dirt base
-    const dirt = new THREE.Mesh(
-      new THREE.BoxGeometry(scale, 0.4, scale),
-      new THREE.MeshPhongMaterial({ color: MC_COLORS.DIRT, flatShading: true })
-    );
+    const dirt = new THREE.Mesh(UNIT_BOX, UNIT_DIRT_MAT);
+    dirt.scale.set(scale, 0.4, scale);
     dirt.position.y = -0.2;
     // Grass top
-    const grass = new THREE.Mesh(
-      new THREE.BoxGeometry(scale, 0.1, scale),
-      new THREE.MeshPhongMaterial({ color: MC_COLORS.GRASS, flatShading: true })
-    );
+    const grass = new THREE.Mesh(UNIT_BOX, UNIT_GRASS_MAT);
+    grass.scale.set(scale, 0.1, scale);
     grass.position.y = 0.05;
     group.add(dirt, grass);
     group.receiveShadow = true;
     return group;
   }
-  const geo = new THREE.IcosahedronGeometry(0.8 * scale, 1);
+  const geo = UNIT_ICOSA.clone();
   const posAttr = geo.attributes.position;
   for (let i = 0; i < posAttr.count; i++) {
     const x = posAttr.getX(i);
@@ -472,11 +449,12 @@ const createStoneTile = (scale: number, color: number, theme: ThemeType = ThemeT
     const z = posAttr.getZ(i);
     // Rough terrain distortion
     posAttr.setXYZ(i, 
-      x + (Math.random() - 0.5) * 0.3 * scale,
-      y + (Math.random() - 0.5) * 0.2 * scale,
-      z + (Math.random() - 0.5) * 0.3 * scale
+      x + (Math.random() - 0.5) * 0.3,
+      y + (Math.random() - 0.5) * 0.2,
+      z + (Math.random() - 0.5) * 0.3
     );
   }
+  geo.scale(scale, 1, scale);
   geo.computeVertexNormals();
 
   const mat = new THREE.MeshPhongMaterial({ 
@@ -500,17 +478,20 @@ const createAnimal = (type: 'HANGING_BAT', scale: number = 0.5, theme: ThemeType
     const mat = new THREE.MeshPhongMaterial({ color: 0x333333, flatShading: true });
     
     // Voxel Bat Body
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.3), mat);
+    const body = new THREE.Mesh(UNIT_BOX, mat);
+    body.scale.set(0.3, 0.4, 0.3);
     body.position.y = 0.2;
     group.add(body);
     
     // Head (hanging down)
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mat);
+    const head = new THREE.Mesh(UNIT_BOX, mat);
+    head.scale.set(0.2, 0.2, 0.2);
     head.position.y = -0.1;
     group.add(head);
 
     // Wings (closed)
-    const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.25), mat);
+    const wingL = new THREE.Mesh(UNIT_BOX, mat);
+    wingL.scale.set(0.05, 0.4, 0.25);
     wingL.position.set(-0.15, 0.2, 0.05);
     const wingR = wingL.clone();
     wingR.position.x = 0.15;
@@ -649,17 +630,13 @@ const createTree = (scale: number = 1, theme: ThemeType = ThemeType.FOREST) => {
   
   if (isBlocky) {
     // Voxel Tree
-    const trunk = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3 * scale, 1.2 * scale, 0.3 * scale),
-        new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LOG, flatShading: true })
-    );
+    const trunk = new THREE.Mesh(UNIT_BOX, UNIT_TRUNK_MAT);
+    trunk.scale.set(0.3 * scale, 1.2 * scale, 0.3 * scale);
     trunk.position.y = 0.6 * scale;
     group.add(trunk);
 
-    const foliage = new THREE.Mesh(
-        new THREE.BoxGeometry(1.0 * scale, 1.0 * scale, 1.0 * scale),
-        new THREE.MeshPhongMaterial({ color: MC_COLORS.OAK_LEAVES, flatShading: true })
-    );
+    const foliage = new THREE.Mesh(UNIT_BOX, UNIT_LEAF_MAT);
+    foliage.scale.set(1.0 * scale, 1.0 * scale, 1.0 * scale);
     foliage.position.y = 1.5 * scale;
     group.add(foliage);
     return group;
@@ -744,8 +721,7 @@ export default function BlockyBoard() {
   const particlesRef = useRef<THREE.Points | null>(null);
   const rainRef = useRef<THREE.Points | null>(null);
   const mistRef = useRef<THREE.Points | null>(null);
-  const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
-  const thunderAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const pulsatingObjectsRef = useRef<THREE.Mesh[]>([]);
   const animatingLinesRef = useRef<THREE.Line[]>([]);
   const animatingFlagsRef = useRef<THREE.Group[]>([]);
@@ -778,7 +754,7 @@ export default function BlockyBoard() {
   const [cameraMode, setCameraMode] = useState<'FREE' | 'TOP' | 'ISO' | 'FOLLOW' | 'SHOULDER'>('FOLLOW');
   const [followedPlayerIndex, setFollowedPlayerIndex] = useState(0);
 
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [fogDensity, setFogDensity] = useState(0.015);
   const [currentLevelID, setCurrentLevelID] = useState<LevelID>(LevelID.WHISPERING_WOODS);
   const currentLevel = LEVELS[currentLevelID];
@@ -806,10 +782,223 @@ export default function BlockyBoard() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<ScoreEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [boardSyncData, setBoardSyncData] = useState<any>(null);
+
+  // Multiplayer State
+  const [user, setUser] = useState<any>(null);
+  const [isMultiplayer, setIsMultiplayer] = useState(false);
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [isHost, setIsHost] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [loadingMatch, setLoadingMatch] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Weather and Navigation States
   const [weather, setWeather] = useState<'SUNNY' | 'RAIN' | 'MIST'>('SUNNY');
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+
+  // URL Parameter check for auto-joining
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('match');
+    if (code) {
+      setJoinCodeInput(code.toUpperCase());
+      // Optional: auto-join if user is already logged in? 
+      // Better to just fill the input for safety.
+    }
+  }, []);
+
+  // Auth listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) {
+        setSetupPlayerNames(prev => {
+          const names = [...prev];
+          names[0] = u.displayName || 'Player 1';
+          return names;
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error(error);
+      showToast("SIGN IN FAILED", "#ff4444");
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  const handleShare = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('match', matchId || '');
+    const fullUrl = url.toString();
+
+    const shareData = {
+      title: '🌴 Eco Board Game: Multi-Player',
+      text: `Join my match on Wild Board! Code: ${matchId}`,
+      url: fullUrl
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        showToast("SHARED SUCCESSFULLY!", "#39FF14");
+      } else {
+        await navigator.clipboard.writeText(fullUrl);
+        setCopied(true);
+        showToast("LINK COPIED TO CLIPBOARD!", "#39FF14");
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        // Fallback for any other error
+        navigator.clipboard.writeText(fullUrl);
+        showToast("LINK COPIED TO CLIPBOARD!", "#39FF14");
+      }
+    }
+  };
+
+  const generateJoinCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  const hostMatch = async () => {
+    if (!user) return handleLogin();
+    setLoadingMatch(true);
+    const code = generateJoinCode();
+    try {
+      const matchRef = doc(db, 'matches', code);
+      await setDoc(matchRef, {
+        hostId: user.uid,
+        status: 'LOBBY',
+        levelId: currentLevelID,
+        currentTurn: 0,
+        lastRoll: 0,
+        updatedAt: serverTimestamp()
+      });
+
+      // Add self as participant
+      const pRef = doc(db, 'matches', code, 'participants', user.uid);
+      await setDoc(pRef, {
+        userId: user.uid,
+        name: user.displayName || 'Host',
+        photoURL: user.photoURL,
+        position: 0,
+        coins: 100,
+        color: PLAYER_COLORS[0],
+        isReady: true,
+        inventory: [],
+        joinedAt: serverTimestamp()
+      });
+
+      setMatchId(code);
+      setIsHost(true);
+      setIsMultiplayer(true);
+      showToast(`MATCH CREATED: ${code}`, "#39FF14");
+    } catch (e) {
+      console.error(e);
+      showToast("FAILED TO CREATE MATCH", "#ff4444");
+    }
+    setLoadingMatch(false);
+  };
+
+  const joinMatch = async (code: string) => {
+    if (!user) return handleLogin();
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) return;
+    setLoadingMatch(true);
+    try {
+      const matchRef = doc(db, 'matches', cleanCode);
+      const matchSnap = await getDoc(matchRef);
+      if (!matchSnap.exists()) {
+        showToast("INVALID MATCH CODE", "#ff4444");
+        setLoadingMatch(false);
+        return;
+      }
+
+      const matchData = matchSnap.data();
+      setCurrentLevelID(matchData.levelId);
+
+      // Add self as participant
+      const pRef = doc(db, 'matches', cleanCode, 'participants', user.uid);
+      await setDoc(pRef, {
+        userId: user.uid,
+        name: user.displayName || 'Guest',
+        photoURL: user.photoURL,
+        position: 0,
+        coins: 100,
+        color: PLAYER_COLORS[Math.floor(Math.random() * 10)], 
+        isReady: true,
+        inventory: [],
+        joinedAt: serverTimestamp()
+      });
+
+      setMatchId(cleanCode);
+      setIsHost(false);
+      setIsMultiplayer(true);
+      showToast("JOINED MATCH!", "#39FF14");
+    } catch (e) {
+      console.error(e);
+      showToast("FAILED TO JOIN MATCH", "#ff4444");
+    }
+    setLoadingMatch(false);
+  };
+
+  // Match Sync
+  useEffect(() => {
+    if (!matchId || !isMultiplayer) return;
+
+    const matchRef = doc(db, 'matches', matchId);
+    const unsubMatch = onSnapshot(matchRef, (snap) => {
+      const data = snap.data();
+      if (!data) return;
+      
+      if (data.status === 'PLAYING' && gameState === 'SETUP') {
+        setGameState('IDLE');
+      }
+
+      if (data.boardLayout) {
+        setBoardSyncData(JSON.parse(data.boardLayout));
+      }
+
+      if (data.currentTurn !== undefined) setCurrentPlayerIndex(data.currentTurn);
+      if (data.lastRoll !== undefined) setRollResult(data.lastRoll);
+    });
+
+    const participantsRef = collection(db, 'matches', matchId, 'participants');
+    const unsubParticipants = onSnapshot(query(participantsRef, orderBy('joinedAt', 'asc')), (snap) => {
+      const parts = snap.docs.map(d => d.data());
+      setParticipants(parts);
+      
+      const localPlayers = parts.map((p: any, idx: number) => ({
+        id: idx,
+        userId: p.userId,
+        name: p.name,
+        position: p.position,
+        coins: p.coins,
+        color: p.color,
+        isAuto: false,
+        isImmune: false,
+        isSlowed: false,
+        inventory: p.inventory || [],
+        turns: p.turns || 0,
+        cagedTurns: p.cagedTurns || 0
+      }));
+      setPlayers(localPlayers);
+    });
+
+    return () => {
+      unsubMatch();
+      unsubParticipants();
+    };
+  }, [matchId, isMultiplayer, gameState]);
 
   const fetchLeaderboard = useCallback(async (level: LevelID) => {
     setLoadingLeaderboard(true);
@@ -876,40 +1065,7 @@ export default function BlockyBoard() {
     return () => clearInterval(weatherCycle);
   }, []);
 
-  // Ambient Sounds Logic
-  useEffect(() => {
-    if (gameState === 'SETUP' || gameState === 'WON') {
-      if (ambientAudioRef.current) {
-        ambientAudioRef.current.pause();
-        ambientAudioRef.current = null;
-      }
-      return;
-    }
 
-    if (theme === ThemeType.FOREST) {
-      if (!ambientAudioRef.current) {
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2436/2436-preview.mp3');
-        audio.loop = true;
-        audio.volume = 0.2;
-        audio.play().catch(() => {});
-        ambientAudioRef.current = audio;
-      }
-    } else {
-      if (ambientAudioRef.current) {
-        ambientAudioRef.current.pause();
-        ambientAudioRef.current = null;
-      }
-    }
-  }, [gameState, theme]);
-
-  useEffect(() => {
-    if (weather === 'RAIN' && theme === ThemeType.FOREST) {
-      const thunder = new Audio('https://assets.mixkit.co/active_storage/sfx/2418/2418-preview.mp3');
-      thunder.volume = 0.4;
-      thunder.play().catch(() => {});
-      thunderAudioRef.current = thunder;
-    }
-  }, [weather, theme]);
 
   const currentP = players[currentPlayerIndex] || { 
     id: -1, 
@@ -1028,22 +1184,9 @@ export default function BlockyBoard() {
     }
   }, [fogDensity]);
 
-  useEffect(() => {
-    const startAudio = () => {
-      SoundEngine.playBackground();
-      window.removeEventListener('click', startAudio);
-      window.removeEventListener('touchstart', startAudio);
-    };
-    window.addEventListener('click', startAudio);
-    window.addEventListener('touchstart', startAudio);
-    return () => {
-      window.removeEventListener('click', startAudio);
-      window.removeEventListener('touchstart', startAudio);
-    };
-  }, []);
+
 
   const startGame = () => {
-    SoundEngine.playBackground();
     const initialPlayers: Player[] = [];
     const count = setupPlayerCount === 1 ? 2 : setupPlayerCount;
     
@@ -1487,6 +1630,18 @@ export default function BlockyBoard() {
 
   // Dynamic initialization of board elements based on level
   useEffect(() => {
+    if (isMultiplayer && !isHost && !boardSyncData) return;
+
+    if (isMultiplayer && boardSyncData) {
+      setActiveTransports(boardSyncData.transports);
+      setPredators(boardSyncData.predators);
+      const m = new Map();
+      Object.entries(boardSyncData.treasure).forEach(([k, v]) => m.set(parseInt(k), v));
+      setTreasureMap(m);
+      setTntTiles(boardSyncData.tnt);
+      return;
+    }
+
     const occupied = new Set<number>();
     occupied.add(1); 
     occupied.add(boardSize);
@@ -1625,7 +1780,17 @@ export default function BlockyBoard() {
     setPredators(newPredators);
     setTreasureMap(map);
     setTntTiles(initialTnt);
-  }, [currentLevelID, boardSize]);
+
+    if (isMultiplayer && isHost && matchId) {
+      const layout = {
+        transports: newTransports,
+        predators: newPredators,
+        treasure: Object.fromEntries(map),
+        tnt: initialTnt
+      };
+      updateDoc(doc(db, 'matches', matchId), { boardLayout: JSON.stringify(layout) });
+    }
+  }, [currentLevelID, boardSize, boardSyncData, isMultiplayer, isHost, matchId]);
 
   const createCoin = () => {
     // Replaced 3D coin with 🪙 emoji sprite
@@ -2203,106 +2368,96 @@ export default function BlockyBoard() {
       pMat.color.set(theme === ThemeType.BLOCKY ? 0xFFFFFF : 0x39FF14);
     }
 
-    for (let i = 1; i <= 100; i++) {
+    // Performance Optimization: Use InstancedMesh for Blocky objects
+    if (theme === ThemeType.BLOCKY) {
+      const stoneMatrices: THREE.Matrix4[] = [];
+      const grassMatrices: THREE.Matrix4[] = [];
+      const dirtMatrices: THREE.Matrix4[] = [];
+      const trunkMatrices: THREE.Matrix4[] = [];
+      const foliageMatrices: THREE.Matrix4[] = [];
+
+      for (let i = 1; i <= boardSize; i++) {
+        const coords = getTileCoords(i);
+        
+        // Tile Matrices
+        const scale = 0.8 + Math.random() * 0.4;
+        const matrixDirt = new THREE.Matrix4().makeTranslation(coords.x, coords.y - 0.4, coords.z);
+        matrixDirt.scale(new THREE.Vector3(scale, 0.4, scale));
+        dirtMatrices.push(matrixDirt);
+
+        const matrixGrass = new THREE.Matrix4().makeTranslation(coords.x, coords.y - 0.15, coords.z);
+        matrixGrass.scale(new THREE.Vector3(scale, 0.1, scale));
+        grassMatrices.push(matrixGrass);
+
+        // Decoration
+        if (Math.random() > 0.45) {
+          const treeCount = Math.floor(Math.random() * 2) + 1;
+          for(let j=0; j<treeCount; j++) {
+            const tScale = 0.6 + Math.random() * 0.7;
+            const treePos = new THREE.Vector3(coords.x + (Math.random()-0.5)*4, coords.y - 0.2, coords.z + (Math.random()-0.5)*4);
+            
+            const matrixTrunk = new THREE.Matrix4().makeTranslation(treePos.x, treePos.y + 0.6 * tScale, treePos.z);
+            matrixTrunk.scale(new THREE.Vector3(0.3 * tScale, 1.2 * tScale, 0.3 * tScale));
+            trunkMatrices.push(matrixTrunk);
+
+            const matrixFoliage = new THREE.Matrix4().makeTranslation(treePos.x, treePos.y + 1.5 * tScale, treePos.z);
+            matrixFoliage.scale(new THREE.Vector3(1.0 * tScale, 1.0 * tScale, 1.0 * tScale));
+            foliageMatrices.push(matrixFoliage);
+          }
+        }
+      }
+
+      const imDirt = new THREE.InstancedMesh(UNIT_BOX, UNIT_DIRT_MAT, dirtMatrices.length);
+      dirtMatrices.forEach((m, i) => imDirt.setMatrixAt(i, m));
+      staticGroup.add(imDirt);
+
+      const imGrass = new THREE.InstancedMesh(UNIT_BOX, UNIT_GRASS_MAT, grassMatrices.length);
+      grassMatrices.forEach((m, i) => imGrass.setMatrixAt(i, m));
+      staticGroup.add(imGrass);
+
+      const imTrunk = new THREE.InstancedMesh(UNIT_BOX, UNIT_TRUNK_MAT, trunkMatrices.length);
+      trunkMatrices.forEach((m, i) => imTrunk.setMatrixAt(i, m));
+      staticGroup.add(imTrunk);
+
+      const imFoliage = new THREE.InstancedMesh(UNIT_BOX, UNIT_LEAF_MAT, foliageMatrices.length);
+      foliageMatrices.forEach((m, i) => imFoliage.setMatrixAt(i, m));
+      staticGroup.add(imFoliage);
+
+    } else {
+      // Non-Blocky mode: Original loop (simplified)
+      for (let i = 1; i <= boardSize; i++) {
         const coords = getTileCoords(i);
         
         // Jungle Stone Biomes
-        let stoneColor = 0x444444; // Grey
-        if (theme === ThemeType.BLOCKY) {
-          stoneColor = MC_COLORS.STONE;
-        } else {
-          // Natural stone with mossy variations
-          const stoneMix = [
-            0x444444, 0x555555, // Stone grey
-            0x2d4c1e, 0x3a5f0b, // Mossy green
-            0x3d3d3d, 0x1a2a1a  // Deep dark earth/stone
-          ];
-          stoneColor = stoneMix[(i + Math.floor(i/7)) % stoneMix.length];
-        }
-        
-        // Background Scenery for Blocky Mode
-        if (theme === ThemeType.BLOCKY) {
-          if (i % 20 === 0) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 20 + Math.random() * 15;
-            const bgTree = createTree(3 + Math.random() * 2, theme);
-            bgTree.position.set(Math.cos(angle) * dist, -0.2, Math.sin(angle) * dist);
-            staticGroup.add(bgTree);
-          }
-        }
+        let stoneColor = 0x444444; 
+        const stoneMix = [0x444444, 0x555555, 0x2d4c1e, 0x3a5f0b, 0x3d3d3d, 0x1a2a1a];
+        stoneColor = stoneMix[(i + Math.floor(i/7)) % stoneMix.length];
         
         const stoneScale = 0.8 + Math.random() * 0.4;
         const tile = createStoneTile(stoneScale, stoneColor, theme);
         tile.position.set(coords.x, coords.y - 0.2, coords.z);
         staticGroup.add(tile);
       
-      // Even Denser Jungle Foliage
-      const density = 0.25; 
-      if (Math.random() > density) {
-        const treeCount = Math.floor(Math.random() * 6) + 2;
-        for(let j = 0; j < treeCount; j++) {
-          const treeScale = (0.6 + Math.random() * 0.7) * 1.5 * 0.64; 
-          const tree = createTree(treeScale, theme);
-          tree.traverse((child) => {
-            if ((child as any).userData?.pulsate) pulsatingObjectsRef.current.push(child as THREE.Mesh);
-          });
-          
-          // Calculate path direction to place trees laterally
-          let lateral = new THREE.Vector3(1, 0, 0); // Default
-          if (i > 0 && i < 99) {
-            const prev = PATH_COORDS[i-1];
-            const next = PATH_COORDS[Math.min(i+1, 99)];
-            const dir = new THREE.Vector3(next.x - prev.x, 0, next.z - prev.z).normalize();
-            lateral.set(-dir.z, 0, dir.x); // Perpendicular to path
-          }
-
-          const side = Math.random() > 0.5 ? 1 : -1;
-          const dist = 2.2 + Math.random() * 2.5;
-          const treePos = new THREE.Vector3(coords.x, coords.y - 0.2, coords.z)
-            .add(lateral.multiplyScalar(side * dist))
-            .add(new THREE.Vector3((Math.random()-0.5)*1, 0, (Math.random()-0.5)*1)); // Jitter
-
-          tree.position.copy(treePos);
-          tree.rotation.y = Math.random() * Math.PI;
-          staticGroup.add(tree);
-          
-          // Birds/Bats removed for performance
-
-          // Add hanging bats
-          if (Math.random() > 0.85) {
-            const bat = createAnimal('HANGING_BAT', 0.4, theme);
-            bat.position.set(treePos.x + (Math.random()-0.5), coords.y + 0.6 * treeScale, treePos.z + (Math.random()-0.5));
-            animalsGroup.add(bat);
+        const density = 0.4; 
+        if (Math.random() > density) {
+          const treeCount = Math.floor(Math.random() * 3) + 1;
+          for(let j = 0; j < treeCount; j++) {
+            const treeScale = (0.6 + Math.random() * 0.7) * 1.5 * 0.64; 
+            const tree = createTree(treeScale, theme);
+            const side = Math.random() > 0.5 ? 1 : -1;
+            const dist = 3.5 + Math.random() * 3.5;
+            tree.position.set(coords.x + side * dist, coords.y - 0.2, coords.z + (Math.random()-0.5)*3);
+            tree.rotation.y = Math.random() * Math.PI;
+            staticGroup.add(tree);
           }
         }
-
-        // Increased jungle ground cover
-        const bushCount = Math.floor(Math.random() * 4) + 2;
-        for(let j = 0; j < bushCount; j++) {
-          const bushGeo = new THREE.SphereGeometry(0.3, 6, 6);
-          const bushMat = new THREE.MeshPhongMaterial({ color: 0x051105 });
-          const bush = new THREE.Mesh(bushGeo, bushMat);
-          const bAngle = Math.random() * Math.PI * 2;
-          const bDist = 1.2 + Math.random() * 1.8;
-          bush.position.set(
-            coords.x + Math.cos(bAngle) * bDist,
-            coords.y - 0.15,
-            coords.z + Math.sin(bAngle) * bDist
-          );
-          bush.scale.set(1.5 + Math.random(), 0.4, 1.5 + Math.random());
-          staticGroup.add(bush);
-        }
-      }
-
-      // Flying bats removed for performance
-      
-      // Victory Fort
-      if (i === boardSize) {
-        const fort = createFort(theme);
-        fort.position.set(coords.x, coords.y - 0.1, coords.z);
-        staticGroup.add(fort);
       }
     }
+
+    const lastCoords = getTileCoords(boardSize);
+    const fort = createFort(theme);
+    fort.position.set(lastCoords.x, lastCoords.y - 0.1, lastCoords.z);
+    staticGroup.add(fort);
 
     activeTransports.forEach((t, index) => {
       const isBroken = disabledTransports.includes(index);
@@ -2621,24 +2776,43 @@ export default function BlockyBoard() {
       if (idx < 0 || idx >= prev.length) return prev;
       const next = [...prev];
       next[idx] = { ...next[idx], ...data };
+      
+      // Multiplayer Sync: Push our updates to Firestore
+      const p = next[idx];
+      if (isMultiplayer && matchId && p.userId === user?.uid) {
+        const participantRef = doc(db, 'matches', matchId, 'participants', user.uid);
+        updateDoc(participantRef, {
+          position: p.position ?? 0,
+          coins: p.coins ?? 100,
+          inventory: p.inventory ?? [],
+          isReady: true
+        }).catch(err => console.error("Sync error:", err));
+      }
+
       return next;
     });
-  }, []);
+  }, [isMultiplayer, matchId, user]);
 
   const nextTurn = useCallback(() => {
     if (players.length === 0) return;
     
-    // Update turns for the player who just finished their turn
     setPlayers(current => current.map((p, idx) => 
       idx === currentPlayerIndex ? { ...p, turns: p.turns + 1 } : p
     ));
 
+    const nextIdx = (currentPlayerIndex + 1) % players.length;
+
+    if (isMultiplayer && matchId) {
+      // Only host or current player advances turn to avoid race conditions
+      if (participants[currentPlayerIndex]?.userId === user?.uid || isHost) {
+        updateDoc(doc(db, 'matches', matchId), { currentTurn: nextIdx });
+      }
+    }
+
     setGameState('IDLE');
     setRollResult(null);
-    
-    // Switch to the next player. 
-    setCurrentPlayerIndex((prevIndex) => (prevIndex + 1) % players.length);
-  }, [players, currentPlayerIndex]);
+    setCurrentPlayerIndex(nextIdx);
+  }, [players, currentPlayerIndex, isMultiplayer, matchId, participants, user, isHost]);
 
   const checkTileEffect = useCallback((pIdx: number, tile: number, skipSecondary: boolean = false) => {
     const p = players[pIdx];
@@ -2666,7 +2840,7 @@ export default function BlockyBoard() {
       return;
     }
     const predator = predators.find(pred => pred.start === tile);
-    if (predator) {
+    if (predator && !skipSecondary) {
       const coords = getTileCoords(tile);
       if (p.inventory.includes('ANTI_VENOM')) {
         showToast("ANTI-VENOM USED!", "#39FF14");
@@ -2771,8 +2945,8 @@ export default function BlockyBoard() {
         setTimeout(() => {
           updatePlayer(pIdx, { position: tile });
           nextTurn();
-        }, 1000);
-      }, 800);
+        }, 600);
+      }, 600);
       return;
     }
     if (tile === boardSize) {
@@ -2800,7 +2974,7 @@ export default function BlockyBoard() {
     // Add a small delay for natural transition
     setTimeout(() => {
       nextTurn();
-    }, 800);
+    }, 400);
   }, [players, tntTiles, disabledTransports, treasureMap, updatePlayer, nextTurn, addMessage]);
 
   const animateDirectJump = useCallback((pIdx: number, targetPos: number, isPenalty: boolean = false) => {
@@ -2851,82 +3025,87 @@ export default function BlockyBoard() {
     }
   }, [checkTileEffect, updatePlayer, lastCollectedTile]);
 
-  const animateHopping = useCallback((pIdx: number, targetPos: number) => {
-    const p = players[pIdx];
-    const current = p.position;
-    const steps = Math.abs(targetPos - current);
-    const direction = targetPos > current ? 1 : -1;
-    let stepCount = 0;
+  const animatePathHopping = useCallback((pIdx: number, path: number[]) => {
+    let stepIndex = 0;
     const moveNext = () => {
-      if (stepCount >= steps) {
-        // Refill check
-        if (lastCollectedTile !== null && lastCollectedTile !== targetPos) {
-          setTreasureMap(prev => {
-            if (prev.has(lastCollectedTile)) return prev;
-            const next = new Map(prev);
-            const isCoin = Math.random() > 0.4;
-            if (isCoin) {
-              next.set(lastCollectedTile, 'COIN');
-            } else {
-              const itemKeys = Object.keys(ITEMS).filter(k => k !== 'COIN') as ItemType[];
-              next.set(lastCollectedTile, itemKeys[Math.floor(Math.random() * itemKeys.length)]);
-            }
-            return next;
-          });
-          setLastCollectedTile(null);
-        }
-        checkTileEffect(pIdx, targetPos);
+      if (stepIndex >= path.length) {
+        const finalPos = path[path.length - 1];
+        checkTileEffect(pIdx, finalPos);
         return;
       }
-      stepCount++;
-      const pos = current + stepCount * direction;
-      const coords = getTileCoords(pos);
+
+      const targetPos = path[stepIndex];
+      const coords = getTileCoords(targetPos);
       const token = playersRef.current?.children[pIdx] as THREE.Group;
+      
+      SoundEngine.play('roll');
+      
       if (token) {
-        gsap.to(token.position, { x: coords.x, z: coords.z, duration: 0.3, ease: "none" });
+        gsap.to(token.position, { x: coords.x, z: coords.z, duration: 0.2, ease: "none" });
         gsap.to(token.position, { 
           y: coords.y + 0.5, 
-          duration: 0.15, 
+          duration: 0.1, 
           yoyo: true, 
           repeat: 1, 
-          ease: "power1.out",
-          onComplete: () => {
-            triggerVFX('spark', coords, 0xffffff);
-          }
+          ease: "power1.out"
         });
       }
-      setTimeout(moveNext, 300);
+      
+      stepIndex++;
+      setTimeout(moveNext, 200);
     };
     moveNext();
-  }, [players, checkTileEffect]);
+  }, [checkTileEffect]);
 
   const movePlayer = useCallback((pIdx: number, steps: number) => {
     const p = players[pIdx];
-    let actualSteps = steps;
+    if (!p) return;
     
-    // Apply modifiers
+    let actualSteps = steps;
     if (p.speedBoost) actualSteps += 2;
     if (p.sluggish) actualSteps = Math.ceil(actualSteps / 2);
     if (p.reversed) actualSteps = -actualSteps;
 
-    let nextPos = p.position + actualSteps;
-    
-    // Boundary checks
-    if (nextPos > boardSize) nextPos = boardSize - (nextPos - boardSize);
-    if (nextPos < 1) nextPos = 1;
+    const path: number[] = [];
+    let currentPosTemp = p.position;
+    const absSteps = Math.abs(actualSteps);
+    const direction = actualSteps >= 0 ? 1 : -1;
 
-    // Reset modifiers after turn if they were used
+    for (let i = 1; i <= absSteps; i++) {
+      let step = currentPosTemp + direction;
+      // Bounce back logic
+      if (step > boardSize) {
+        step = boardSize - (step - boardSize);
+      }
+      if (step < 1) step = 1;
+      path.push(step);
+      currentPosTemp = step;
+    }
+
+    // Reset modifiers
     updatePlayer(pIdx, { 
       speedBoost: false, 
       sluggish: false, 
       reversed: false 
     });
 
-    animateHopping(pIdx, nextPos);
-  }, [players, animateHopping, updatePlayer]);
+    if (path.length > 0) {
+      animatePathHopping(pIdx, path);
+    } else {
+      // No movement (e.g. sluggish 1/2 = 0.5 -> 1 step but if somehow 0)
+      nextTurn();
+    }
+  }, [players, boardSize, updatePlayer, nextTurn]);
 
   const rollDice = useCallback(() => {
     if (gameState !== 'IDLE' || players.length === 0) return;
+
+    if (isMultiplayer && matchId) {
+      if (participants[currentPlayerIndex]?.userId !== user?.uid) {
+        showToast("WAIT FOR YOUR TURN", "#FF4500");
+        return;
+      }
+    }
     
     const currentP = players[currentPlayerIndex];
     if (currentP.cagedTurns > 0) {
@@ -2940,6 +3119,10 @@ export default function BlockyBoard() {
     SoundEngine.play('roll');
     const result = Math.floor(Math.random() * 6) + 1;
     setRollResult(result);
+
+    if (isMultiplayer && matchId) {
+      updateDoc(doc(db, 'matches', matchId), { lastRoll: result });
+    }
     
     const p = players[currentPlayerIndex];
     let displayResult = result;
@@ -3040,7 +3223,7 @@ export default function BlockyBoard() {
             addMessage(`${p.name} deployed an AFV against ${targetPlayer.name}! ${targetPlayer.name} moved back 10 steps to tile ${newPos}!`);
             triggerDizzyEffect(targetPlayer.id, 2000);
             setTimeout(() => {
-               animateHopping(targetPlayer.id, newPos);
+               animateDirectJump(targetPlayer.id, newPos, true);
             }, 500);
           });
         }
@@ -3056,7 +3239,7 @@ export default function BlockyBoard() {
             const newPos = Math.max(1, targetPlayer.position - back);
             showToast(`${type} HIT! ${targetPlayer.name} MOVED BACK ${back} TILES`, "#FF2D78");
             addMessage(`${p.name} fired a ${type} at ${targetPlayer.name}! ${targetPlayer.name} moved back ${back} steps to tile ${newPos}!`);
-            animateHopping(targetPlayer.id, newPos);
+            animateDirectJump(targetPlayer.id, newPos, true);
           });
         }
       } else if (type === 'CAGE') {
@@ -3084,7 +3267,7 @@ export default function BlockyBoard() {
     } else {
       executeUsage();
     }
-  }, [currentPlayerIndex, players, updatePlayer, animateHopping, triggerProjectile, triggerVFX, triggerDizzyEffect, isSpectating, getTileCoords]);
+  }, [currentPlayerIndex, players, updatePlayer, animateDirectJump, triggerProjectile, triggerVFX, triggerDizzyEffect, isSpectating, getTileCoords]);
   
   const buyItem = useCallback((type: ItemType) => {
     const item = ITEMS[type];
@@ -3233,6 +3416,103 @@ export default function BlockyBoard() {
             </div>
 
             <div className="space-y-6">
+              {/* Online & Account Section */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {user ? (
+                    <img src={user.photoURL} alt="" className="w-10 h-10 rounded-full border border-[#5D9948]" />
+                  ) : (
+                    <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center">
+                      <UserIcon size={20} className="text-white/40" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Logged in as</p>
+                    <p className="text-sm font-bold">{user?.displayName || 'Guest User'}</p>
+                  </div>
+                </div>
+                {user ? (
+                  <button onClick={handleLogout} className="p-2 text-white/40 hover:text-red-400 transition-colors">
+                    <LogOut size={18} />
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleLogin}
+                    className="px-4 py-2 bg-white text-black text-xs font-black uppercase italic rounded-lg hover:scale-105 active:scale-95 transition-all"
+                  >
+                    Sign In
+                  </button>
+                )}
+              </div>
+
+              {/* Multiplayer Controls */}
+              {!isMultiplayer ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={hostMatch}
+                    disabled={loadingMatch}
+                    className="flex flex-col items-center justify-center p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl hover:bg-emerald-500/20 transition-all group"
+                  >
+                    <Share2 className="text-emerald-400 mb-2 group-hover:scale-110 transition-transform" size={24} />
+                    <span className="text-[10px] font-black uppercase text-emerald-400">Host Online</span>
+                  </button>
+                  <div className="flex flex-col gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="JOIN CODE"
+                      value={joinCodeInput}
+                      onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                      className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-center font-black uppercase tracking-widest text-sm focus:border-cyan-500/50 outline-none text-white"
+                    />
+                    <button 
+                      onClick={() => joinMatch(joinCodeInput)}
+                      disabled={loadingMatch || !joinCodeInput}
+                      className="flex-1 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-[10px] font-black uppercase text-cyan-400 hover:bg-cyan-500/20 transition-all disabled:opacity-50"
+                    >
+                      Join Match
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-2xl p-4 flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-[9px] font-black uppercase text-emerald-400 tracking-widest">Connected Match</p>
+                      <p className="text-2xl font-black italic tracking-widest text-white">{matchId}</p>
+                    </div>
+                    <div className="flex gap-2">
+                       <button 
+                        onClick={handleShare}
+                        className={`p-2 rounded-xl border transition-all ${copied ? 'bg-emerald-500 border-emerald-500 text-black' : 'bg-white/5 border-white/10 text-emerald-400 hover:bg-emerald-400 hover:text-black'}`}
+                        title="Copy Invite Link"
+                      >
+                        <Share2 size={18} />
+                      </button>
+                      <button onClick={() => { setIsMultiplayer(false); setMatchId(null); }} className="text-[10px] text-white/40 hover:text-white underline uppercase font-black">Disconnect</button>
+                    </div>
+                  </div>
+                  <div className="flex -space-x-2">
+                    {participants.map((p: any) => (
+                        <img key={p.userId} src={p.photoURL} alt={p.name} title={p.name} className="w-8 h-8 rounded-full border-2 border-[#111827]" style={{ borderColor: p.color }} />
+                    ))}
+                  </div>
+                  {isHost && (
+                    <button 
+                      onClick={async () => {
+                        const matchRef = doc(db, 'matches', matchId!);
+                        await updateDoc(matchRef, { status: 'PLAYING' });
+                      }}
+                      className="w-full py-3 bg-emerald-500 text-black font-black uppercase italic rounded-xl hover:scale-105 transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+                    >
+                      Start Online Match
+                    </button>
+                  )}
+                  {!isHost && (
+                    <p className="text-center text-[10px] font-black uppercase text-emerald-400 animate-pulse">Waiting for Host to start...</p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="text-[9px] font-black uppercase tracking-[0.25em] text-[#5D9948] mb-3 block">Environmental Mission Layer</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

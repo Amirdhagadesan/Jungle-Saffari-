@@ -12,12 +12,51 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["playerName", "level", "turns", "coins", "timestamp"]
+    },
+    "Match": {
+      "title": "Game Match",
+      "description": "A multiplayer game session.",
+      "type": "object",
+      "properties": {
+        "hostId": { "type": "string" },
+        "status": { "type": "string", "enum": ["LOBBY", "PLAYING", "FINISHED"] },
+        "currentTurn": { "type": "number" },
+        "lastRoll": { "type": "number" },
+        "levelId": { "type": "string" },
+        "winnerId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hostId", "status", "levelId", "updatedAt"]
+    },
+    "Participant": {
+      "title": "Match Participant",
+      "description": "A player in a specific match.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "position": { "type": "number" },
+        "coins": { "type": "number" },
+        "color": { "type": "string" },
+        "isReady": { "type": "boolean" },
+        "inventory": { "type": "array" }
+      },
+      "required": ["userId", "name", "position", "coins", "isReady"]
     }
   },
   "firestore": {
     "/leaderboard/{scoreId}": {
       "schema": "Score",
       "description": "Global leaderboard for all game levels."
+    },
+    "/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Active and past game sessions."
+    },
+    "/matches/{matchId}/participants/{userId}": {
+      "schema": "Participant",
+      "description": "Players currently in this match."
     }
   }
 }
