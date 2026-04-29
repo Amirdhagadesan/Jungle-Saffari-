@@ -20,7 +20,7 @@ import {
 import { 
   Dice5, ShoppingCart, Palette, User as UserIcon, 
   Coins, Shield, Trash2, Bomb, ArrowUpRight, 
-  Rocket, Lock, X, Settings
+  Rocket, Lock, X, Settings, Camera
 } from 'lucide-react';
 
 // --- TYPES & CONSTANTS ---
@@ -751,7 +751,10 @@ export default function BlockyBoard() {
   const [setupPlayerColors, setSetupPlayerColors] = useState<string[]>(PLAYER_COLORS.slice(0, 4));
 
   const [isSpectating, setIsSpectating] = useState(false);
-  const [cameraMode, setCameraMode] = useState<'FREE' | 'TOP' | 'ISO' | 'FOLLOW' | 'SHOULDER'>('FOLLOW');
+  const [cameraMode, setCameraMode] = useState<'FREE' | 'TOP' | 'ISO' | 'FOLLOW' | 'SHOULDER' | 'FIRST_PERSON'>('FOLLOW');
+  const [isCameraLocked, setIsCameraLocked] = useState(true);
+  const [exploredTiles, setExploredTiles] = useState<Set<number>>(new Set([1]));
+
   const [followedPlayerIndex, setFollowedPlayerIndex] = useState(0);
 
   const [isMuted, setIsMuted] = useState(true);
@@ -1085,10 +1088,19 @@ export default function BlockyBoard() {
 
   const currentPlayerRef = useRef(0);
   const playersDataRef = useRef<Player[]>([]);
+  const gameStateRef = useRef(gameState);
+  const isSpectatingRef = useRef(isSpectating);
+  const followedPlayerIndexRef = useRef(followedPlayerIndex);
+  const isCameraLockedRef = useRef(isCameraLocked);
+  
   useEffect(() => { 
     currentPlayerRef.current = currentPlayerIndex; 
     playersDataRef.current = players;
-  }, [currentPlayerIndex, players]);
+    gameStateRef.current = gameState;
+    isSpectatingRef.current = isSpectating;
+    followedPlayerIndexRef.current = followedPlayerIndex;
+    isCameraLockedRef.current = isCameraLocked;
+  }, [currentPlayerIndex, players, gameState, isSpectating, followedPlayerIndex, isCameraLocked]);
 
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -1187,6 +1199,7 @@ export default function BlockyBoard() {
 
 
   const startGame = () => {
+    setExploredTiles(new Set([1]));
     const initialPlayers: Player[] = [];
     const count = setupPlayerCount === 1 ? 2 : setupPlayerCount;
     
@@ -1316,10 +1329,121 @@ export default function BlockyBoard() {
   };
 
   // --- CAMERA MODES UI ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'c') {
+        const modes: ('FREE' | 'TOP' | 'ISO' | 'FOLLOW' | 'SHOULDER' | 'FIRST_PERSON')[] = ['FOLLOW', 'SHOULDER', 'FIRST_PERSON', 'ISO', 'TOP', 'FREE'];
+        setCameraMode(prev => {
+          const idx = modes.indexOf(prev);
+          return modes[(idx + 1) % modes.length];
+        });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const MiniMap = () => {
+    const size = 120;
+    const padding = 10;
+    
+    // Find bounds of path
+    const minX = Math.min(...PATH_COORDS.map(c => c.x));
+    const maxX = Math.max(...PATH_COORDS.map(c => c.x));
+    const minZ = Math.min(...PATH_COORDS.map(c => c.z));
+    const maxZ = Math.max(...PATH_COORDS.map(c => c.z));
+    
+    const rangeX = maxX - minX || 1;
+    const rangeZ = maxZ - minZ || 1;
+    
+    const scale = (size - padding * 2) / Math.max(rangeX, rangeZ);
+    
+    const getMapXY = (x: number, z: number) => ({
+      x: padding + (x - minX) * scale,
+      y: padding + (z - minZ) * scale
+    });
+
+    return (
+      <div className="absolute top-20 right-4 w-[130px] h-[130px] bg-black/60 backdrop-blur-xl rounded-xl border border-white/10 p-1 overflow-hidden pointer-events-none shadow-2xl z-[150]">
+        <div className="text-[8px] font-black uppercase text-white/40 tracking-tighter mb-1 px-1 flex justify-between">
+          <span>Mini Map</span>
+          <span className="text-[#39FF14]">Active</span>
+        </div>
+        <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
+          {/* Unexplored Fog Of War Background */}
+          <rect width={size} height={size} fill="#0a0a0a" rx="8" />
+          
+          {/* Explored Path Path */}
+          {PATH_COORDS.map((coord, i) => {
+            const tileNum = i + 1;
+            const isExplored = exploredTiles.has(tileNum);
+            if (!isExplored) return null;
+            
+            const nextCoord = PATH_COORDS[i + 1];
+            if (!nextCoord || !exploredTiles.has(tileNum + 1)) return null;
+            
+            const curr = getMapXY(coord.x, coord.z);
+            const next = getMapXY(nextCoord.x, nextCoord.z);
+            
+            return (
+              <line 
+                key={`line-${i}`}
+                x1={curr.x} y1={curr.y}
+                x2={next.x} y2={next.y}
+                stroke="#39FF14"
+                strokeWidth="1.5"
+                opacity="0.3"
+              />
+            );
+          })}
+
+          {/* Tiles */}
+          {PATH_COORDS.map((coord, i) => {
+            const tileNum = i + 1;
+            const isExplored = exploredTiles.has(tileNum);
+            const { x, y } = getMapXY(coord.x, coord.z);
+            
+            if (!isExplored) return null;
+
+            return (
+              <circle 
+                key={`tile-${i}`}
+                cx={x} cy={y}
+                r="1.2"
+                fill={tileNum === boardSize ? "#FFD700" : "#39FF14"}
+                opacity={tileNum === boardSize ? 1 : 0.6}
+              />
+            );
+          })}
+
+          {/* Players */}
+          {players.map((p, idx) => {
+            const coords = getTileCoordsGlobal(p.position);
+            const { x, y } = getMapXY(coords.x, coords.z);
+            return (
+              <circle 
+                key={`player-${p.id}`}
+                cx={x} cy={y}
+                r="3"
+                fill={p.color}
+                stroke="white"
+                strokeWidth="1"
+              >
+                {idx === currentPlayerIndex && (
+                  <animate attributeName="r" values="3;5;3" dur="1s" repeatCount="indefinite" />
+                )}
+              </circle>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
   const CameraControls = () => (
     <div className={`absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 backdrop-blur-md p-2 rounded-2xl border border-white/10 pointer-events-auto shadow-2xl z-[100] ${uiColors.bg}`}>
       <div className="flex gap-2">
-        {(['FOLLOW', 'SHOULDER', 'ISO', 'TOP', 'FREE'] as const).map(mode => (
+        {(['FOLLOW', 'SHOULDER', 'FIRST_PERSON', 'ISO', 'TOP', 'FREE'] as const).map(mode => (
           <button
             key={mode}
             onClick={() => setCameraMode(mode)}
@@ -1330,7 +1454,7 @@ export default function BlockyBoard() {
             }`}
             style={cameraMode === mode ? { backgroundColor: uiColors.primary, boxShadow: `0 0 15px ${uiColors.primary}60` } : {}}
           >
-            {mode}
+            {mode === 'FIRST_PERSON' ? '1st Person' : mode}
           </button>
         ))}
       </div>
@@ -2084,7 +2208,11 @@ export default function BlockyBoard() {
 
       // Camera Logic (Immersive Spectator Mode)
       if (cameraRef.current && controlsRef.current && playersRef.current) {
-        const activeIdx = currentPlayerRef.current;
+        // If camera is locked, we follow the current player during waiting/moving
+        const activeIdx = (isCameraLockedRef.current && (gameStateRef.current === 'IDLE' || gameStateRef.current === 'MOVING')) 
+          ? currentPlayerRef.current 
+          : (isSpectatingRef.current ? followedPlayerIndexRef.current : currentPlayerRef.current);
+          
         const token = playersRef.current.children[activeIdx];
         
         if (token) {
@@ -2128,7 +2256,34 @@ export default function BlockyBoard() {
             
             const lookTarget = playerPos.clone().add(new THREE.Vector3(6, 0, -6));
             controlsRef.current.target.lerp(lookTarget, 0.1);
+          } else if (cameraMode === 'FIRST_PERSON') {
+            // Immersive First Person logic
+            const headHeight = theme === ThemeType.BLOCKY ? 0.85 : 0.75;
+            const eyePos = playerPos.clone().add(new THREE.Vector3(0, headHeight, 0));
+            
+            // Very fast tracking for one-to-one head movement feel
+            cameraRef.current.position.lerp(eyePos, 0.3);
+
+            let lookDir = new THREE.Vector3(1, 0, -1);
+            const p = playersDataRef.current[activeIdx];
+            if (p && p.id !== -1) {
+              const nextTile = getTileCoordsGlobal(p.position + 1);
+              lookDir.set(nextTile.x - playerPos.x, 0, nextTile.z - playerPos.z).normalize();
+            }
+            const lookTarget = eyePos.clone().add(lookDir.multiplyScalar(5));
+            controlsRef.current.target.lerp(lookTarget, 0.3);
           }
+        }
+
+        // Visibility management for First Person
+        if (playersRef.current) {
+          playersRef.current.children.forEach((token, idx) => {
+            if (cameraMode === 'FIRST_PERSON' && idx === activeIdx) {
+              token.visible = false;
+            } else {
+              token.visible = true;
+            }
+          });
         }
       }
 
@@ -2978,6 +3133,13 @@ export default function BlockyBoard() {
   }, [players, tntTiles, disabledTransports, treasureMap, updatePlayer, nextTurn, addMessage]);
 
   const animateDirectJump = useCallback((pIdx: number, targetPos: number, isPenalty: boolean = false) => {
+    setExploredTiles(prev => {
+      if (prev.has(targetPos)) return prev;
+      const next = new Set(prev);
+      next.add(targetPos);
+      return next;
+    });
+
     const coords = getTileCoords(targetPos);
     const token = playersRef.current?.children[pIdx] as THREE.Group;
     
@@ -3041,6 +3203,13 @@ export default function BlockyBoard() {
       SoundEngine.play('roll');
       
       if (token) {
+        setExploredTiles(prev => {
+          if (prev.has(targetPos)) return prev;
+          const next = new Set(prev);
+          next.add(targetPos);
+          return next;
+        });
+
         gsap.to(token.position, { x: coords.x, z: coords.z, duration: 0.2, ease: "none" });
         gsap.to(token.position, { 
           y: coords.y + 0.5, 
@@ -3339,13 +3508,13 @@ export default function BlockyBoard() {
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase text-[#5D9948] tracking-widest">Angle</span>
               <div className="flex bg-black/40 p-1 rounded-lg">
-                {(['FREE', 'TOP', 'ISO', 'FOLLOW'] as const).map(mode => (
+                {(['FREE', 'TOP', 'ISO', 'FOLLOW', 'FIRST_PERSON'] as const).map(mode => (
                   <button
                     key={mode}
                     onClick={() => setCameraMode(mode)}
                     className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${cameraMode === mode ? 'bg-[#5D9948] text-black shadow-[0_0_10px_rgba(93,153,72,0.4)]' : 'text-white/40 hover:text-white'}`}
                   >
-                    {mode}
+                    {mode === 'FIRST_PERSON' ? '1st' : mode}
                   </button>
                 ))}
               </div>
@@ -3671,7 +3840,12 @@ export default function BlockyBoard() {
         </div>
       )}
 
-      {gameState === 'PLAYING' && <CameraControls />}
+      {gameState === 'PLAYING' && (
+        <>
+          <CameraControls />
+          <MiniMap />
+        </>
+      )}
       
       <header className={`relative z-20 flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4 border-b bg-black/40 backdrop-blur-md ${uiColors.border}`}>
         <div className="flex items-center gap-2 sm:gap-4">
@@ -3819,14 +3993,24 @@ export default function BlockyBoard() {
           </div>
         </div>
       )}
-              <button 
-                onClick={rollDice}
-                disabled={gameState !== 'IDLE' || isSpectating}
-                className={`px-10 py-4 sm:px-16 sm:py-6 font-black text-2xl sm:text-4xl uppercase italic rounded-full transition-all duration-300 scale-90 sm:scale-100 ${gameState === 'IDLE' && !isSpectating ? 'text-black shadow-xl hover:scale-110 active:scale-95 animate-pulse' : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}
-                style={gameState === 'IDLE' && !isSpectating ? { backgroundColor: currentP.color, boxShadow: `0 0 30px ${currentP.color}` } : {}}
-              >
-                {isSpectating ? 'Watching' : currentP.cagedTurns > 0 ? 'Wait' : 'Roll'}
-              </button>
+              <div className="flex items-center gap-3 sm:gap-6 pointer-events-auto">
+                <button 
+                  onClick={() => setIsCameraLocked(prev => !prev)}
+                  title={isCameraLocked ? "Unlock View" : "Lock View on Active Player"}
+                  className={`p-4 sm:p-6 rounded-full transition-all border-2 backdrop-blur-xl ${isCameraLocked ? 'bg-[#39FF14] text-black border-[#39FF14] shadow-[0_0_20px_rgba(57,255,20,0.4)]' : 'bg-black/40 text-white/40 border-white/10 hover:text-white hover:border-white/30'}`}
+                >
+                  <Camera size={24} className={isCameraLocked ? 'animate-pulse' : ''} />
+                </button>
+
+                <button 
+                  onClick={rollDice}
+                  disabled={gameState !== 'IDLE' || isSpectating}
+                  className={`px-10 py-4 sm:px-16 sm:py-6 font-black text-2xl sm:text-4xl uppercase italic rounded-full transition-all duration-300 scale-90 sm:scale-100 ${gameState === 'IDLE' && !isSpectating ? 'text-black shadow-xl hover:scale-110 active:scale-95 animate-pulse' : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}
+                  style={gameState === 'IDLE' && !isSpectating ? { backgroundColor: currentP.color, boxShadow: `0 0 30px ${currentP.color}` } : {}}
+                >
+                  {isSpectating ? 'Watching' : currentP.cagedTurns > 0 ? 'Wait' : 'Roll'}
+                </button>
+              </div>
             </section>
           ) : (
             <div className="flex-1" />
